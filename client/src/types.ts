@@ -1,5 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom";
-
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "security-advisor";
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
 /** A single slide in a generated deck. */
@@ -404,6 +403,21 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultSystemPrompt: "",
     defaultWidth: 320,
     defaultHeight: 320,
+  },
+    "security-advisor": {
+    label: "Security Advisor",
+    icon: "🛡️",
+    color: "#3C6E71",
+    description: "On-demand security and compliance guidance, available at any stage of the pipeline. Reads whatever it's connected to and gives stage-appropriate advice — advisory only, doesn't gate the flow.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+      "Review the connected content below and identify what stage of the pipeline it represents (idea, design, code, etc.). Give 1-3 concrete, actionable security or compliance observations relevant to that stage. Keep it under 200 words unless more detail is requested.\n\nContent:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a Security Advisor available at any stage of an AI-assisted security/compliance pipeline. You won't always know what kind of content you're reviewing — it could be an early idea, a design document, generated code, or a compliance checklist. Read the connected input(s) first to figure out what stage this is, then give guidance appropriate to that stage. You are advisory only — never block or gate the pipeline, and defer to the dedicated Check-category boxes for formal NIST/GDPR/OWASP validation.",
+    defaultWidth: 320,
+    defaultHeight: 280,
   },
 };
 
