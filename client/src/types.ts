@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom";
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "irplanner" | "note" | "label" | "timer" | "custom";
 
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
@@ -223,6 +223,24 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 320,
     defaultHeight: 320,
   },
+
+  irplanner: {
+    label: "IR Planner",
+    icon: "🚨",
+    color: "#ef4444",
+    description:
+      "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+      "Create a structured incident response plan based on the incident information below. Align the plan with SANS PICERL and NIST SP 800-61 Rev. 2.\n\nUse the following structure:\n\n## 1. Preparation\nInclude relevant response roles, communication and escalation planning, documentation requirements, access requirements, and preparedness resources.\n\n## 2. Detection and Analysis\nDescribe how to identify and scope the incident, distinguish relevant precursors and indicators where applicable, analyse available evidence, prioritise the incident, and identify required notifications.\n\n## 3. Containment\nRecommend appropriate short-term and long-term containment considerations, including evidence preservation before destructive actions where relevant.\n\n## 4. Eradication\nDescribe steps for removing the root cause, malicious content, compromised accounts, backdoors, or vulnerabilities based on the available evidence.\n\n## 5. Recovery\nDescribe safe restoration, testing, validation, monitoring, and measures that reduce the chance of recurrence.\n\n## 6. Lessons Learned / Post-Incident Activity\nProvide a structured review covering what happened, what worked, what did not, improvements, documentation, evidence retention, and incident cost or impact tracking.\n\nClearly distinguish known facts from assumptions. Do not invent incident details, severity thresholds, organisational policies, legal requirements, law-enforcement requirements, authority levels, or other organisation-specific decisions. Mark missing or organisation-specific decisions as [HUMAN DECISION REQUIRED] and list clarification questions where necessary.\n\nIncident information:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are an incident response planning assistant. Generate a practical draft incident response plan using SANS PICERL and NIST SP 800-61 Rev. 2 as the structural framework. Use Markdown with clear headings, ordered steps, checklists, and concise explanations.\n\nThe plan should cover Preparation, Detection and Analysis, Containment, Eradication, Recovery, and Lessons Learned/Post-Incident Activity. Incorporate the useful NIST distinction between precursors and indicators, incident prioritisation, evidence preservation, and post-incident cost/impact tracking where supported by the input.\n\nDo not fabricate facts or organisation-specific controls. Do not make final decisions about severity thresholds, escalation authority, legal or regulatory notifications, law-enforcement contact, containment trade-offs, or restoration approval. When information is missing or a decision depends on the organisation or jurisdiction, explicitly mark it as [HUMAN DECISION REQUIRED] and identify the information that needs to be supplied.\n\nTreat the generated plan as a draft for human review, not an authoritative incident response decision or claim of compliance.",
+    defaultWidth: 400,
+    defaultHeight: 520,
+  },
+
   image: {
     label: "Image",
     icon: "🖼️",
