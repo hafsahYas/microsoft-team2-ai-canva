@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom";
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "threat-modeler";
 
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
@@ -404,6 +404,56 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultSystemPrompt: "",
     defaultWidth: 320,
     defaultHeight: 320,
+  },
+  
+  "threat-modeler": {
+    label: "Threat Modeler",
+    icon: "🧠",
+    color: "#8B5CF6",
+    description: "Identifies threats and attack vectors for assets using STRIDE methodology. Analyzes asset inventory and generates a threat list with severity ratings.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: `Based on the connected asset inventory below, analyze each asset and identify potential threats using the STRIDE methodology.
+
+STRIDE Categories:
+- Spoofing: Can someone impersonate a user or system?
+- Tampering: Can someone modify data maliciously?
+- Repudiation: Can someone deny performing an action?
+- Information Disclosure: Can sensitive data be exposed?
+- Denial of Service: Can the asset be made unavailable?
+- Elevation of Privilege: Can someone gain unauthorized access?
+
+For each asset, identify:
+1. Which STRIDE threats apply
+2. A description of the threat
+3. The potential impact (High, Medium, Low)
+
+Output a table with these columns:
+| Asset Name | Threat Type | Description | Impact |
+
+Asset Inventory:
+{{inputs}}`,
+
+    defaultSystemPrompt: `You are a threat modeling expert specializing in STRIDE methodology.
+
+Your task is to analyze an asset inventory and identify all relevant threats for each asset.
+
+Rules:
+1. Use STRIDE methodology: Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege
+2. For each asset, identify ALL relevant threat types
+3. For each threat, provide a clear description of the attack vector
+4. Rate the impact as High, Medium, or Low based on the asset's classification
+5. If an asset has Restricted classification, threats typically have High impact
+6. If an asset has Public classification, threats typically have Low impact
+
+Reference standards:
+- STRIDE Threat Modeling Methodology
+- NIST SP 800-30 (Threat Identification)
+- ISO 27001 Annex A 8.25 (Secure Development)`,
+
+    defaultWidth: 360,
+    defaultHeight: 380,
   },
 };
 

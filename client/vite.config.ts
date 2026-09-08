@@ -20,7 +20,8 @@ function getServerPort(): number {
         if (!isNaN(port) && port > 0) return port;
       }
     } catch {}
-    execSync("sleep 0.1");
+    // For Windows
+execSync('timeout /t 1 /nobreak > NUL');
   }
   console.warn(`[vite] Could not detect server port — falling back to ${fallbackPort}`);
   return fallbackPort;

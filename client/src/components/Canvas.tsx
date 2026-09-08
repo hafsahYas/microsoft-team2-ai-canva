@@ -41,6 +41,7 @@ const nodeTypes = {
   timer: BoxNode,
   area: AreaNode,
   custom: BoxNode,
+  "threat-modeler": BoxNode,
 };
 
 export default function Canvas() {
@@ -213,6 +214,7 @@ export default function Canvas() {
             note: "#fbbf24",
             label: "#64748b",
             timer: "#06b6d4",
+            "threat-modeler": "#8B5CF6",
           };
           if (node.type === "area") {
             // Areas are near-white on the minimap — use their border shade.
