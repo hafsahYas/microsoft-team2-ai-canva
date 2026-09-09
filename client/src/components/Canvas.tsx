@@ -41,6 +41,7 @@ const nodeTypes = {
   timer: BoxNode,
   area: AreaNode,
   custom: BoxNode,
+  riskScorer: BoxNode,
 };
 
 export default function Canvas() {
