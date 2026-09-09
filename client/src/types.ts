@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom";
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "riskScorer";
 
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
@@ -404,6 +404,21 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultSystemPrompt: "",
     defaultWidth: 320,
     defaultHeight: 320,
+  },
+  riskScorer: {
+    label: "Risk Scorer",
+    icon: "🎲",
+    color: "#dc2626",
+    description: "Scores identified threats by likelihood × impact and produces a prioritized risk register.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+      "Given the threats or incident scenarios below, identify each distinct threat and produce a risk register. For each threat: score Likelihood (1-5) and Impact (1-5), calculate Risk = Likelihood x Impact, briefly justify each score in one sentence, and note whether the risk is Low (1-6), Medium (7-14), or High (15-25). Present the results as a table sorted highest-risk first.\n\nThreats:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a security risk analyst using a likelihood x impact scoring model consistent with NIST 800-30 and FAIR risk assessment principles. Be specific and realistic in your scoring — avoid rating everything as high risk. Justify each score briefly so a non-expert can follow your reasoning. Output in Markdown as a clear table.",
+    defaultWidth: 360,
+    defaultHeight: 360,
   },
 };
 
