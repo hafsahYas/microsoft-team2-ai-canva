@@ -41,6 +41,7 @@ const nodeTypes = {
   timer: BoxNode,
   area: AreaNode,
   custom: BoxNode,
+  "threat-modeler": BoxNode,
  "irplanner": BoxNode,
 };
 
@@ -214,6 +215,7 @@ export default function Canvas() {
             note: "#fbbf24",
             label: "#64748b",
             timer: "#06b6d4",
+            "threat-modeler": "#8B5CF6",
             "irplanner": "#ef4444",
           };
           if (node.type === "area") {
