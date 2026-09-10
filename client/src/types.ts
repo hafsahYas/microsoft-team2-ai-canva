@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "irplanner" | "threat-modeler" | "riskScorer";
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "irplanner" | "threatmodeler" | "riskScorer" | "assetmapper";
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
 /** A single slide in a generated deck. */
@@ -410,6 +410,37 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 260,
     defaultHeight: 190,
   },
+  assetmapper: {
+    label: "Asset Mapper",
+    icon: "🗂️",
+    color: "#0f766e",
+    description:
+      "Identify, classify, and structure organisational assets for downstream security analysis.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+      "Analyse the following information and create a structured asset inventory.\n\n" +
+      "Identify relevant assets such as data, applications, systems, cloud services, infrastructure, people, and physical resources where applicable.\n\n" +
+      "For each asset, provide:\n" +
+      "- Asset Name\n" +
+      "- Category\n" +
+      "- Description\n" +
+      "- Owner\n" +
+      "- Classification (Public, Internal, Confidential, or Restricted)\n" +
+      "- Location\n" +
+      "- Dependencies\n" +
+      "- Relevant compliance or regulatory tags\n" +
+      "- Missing information or review flags\n\n" +
+      "Do not invent missing information. If something cannot be determined from the input, mark it as Unknown / Requires Review.\n\n" +
+      "Briefly explain classifications where useful. Focus only on identifying, organising, and classifying assets. Do not perform threat modelling or final risk scoring, as these are handled by downstream security boxes.\n\n" +
+      "Input:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a cybersecurity asset mapping assistant. Convert user and upstream system information into a clear, structured asset inventory. Be accurate, avoid assumptions, clearly flag missing information, and preserve useful relationships and dependencies between assets.",
+    defaultWidth: 360,
+    defaultHeight: 380,
+  },
+
   custom: {
     label: "Custom",
     icon: "✨",
@@ -438,7 +469,7 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 360,
     defaultHeight: 360,
   },
-  "threat-modeler": {
+  threatmodeler: {
     label: "Threat Modeler",
     icon: "🧠",
     color: "#8B5CF6",
