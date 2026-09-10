@@ -214,6 +214,7 @@ export default function Canvas() {
             note: "#fbbf24",
             label: "#64748b",
             timer: "#06b6d4",
+            riskScorer: "#f87171",
           };
           if (node.type === "area") {
             // Areas are near-white on the minimap — use their border shade.
