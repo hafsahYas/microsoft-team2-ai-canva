@@ -34,13 +34,13 @@ const nodeTypes = {
   note: BoxNode,
   label: BoxNode,
   timer: BoxNode,
-  assetmapper: BoxNode,
+  assetMapper: BoxNode,
   area: AreaNode,
   custom: BoxNode,
-  "security-advisor": BoxNode,
+  securityAdvisor: BoxNode,
   riskScorer: BoxNode,
-  threatmodeler: BoxNode,
-  irplanner: BoxNode,
+  threatModeler: BoxNode,
+  irPlanner: BoxNode,
 };
 
 export default function Canvas() {
@@ -268,11 +268,11 @@ export default function Canvas() {
             note: "#fbbf24",
             label: "#64748b",
             timer: "#06b6d4",
-            "security-advisor": "#3C6E71",
-            assetmapper: "#0f766e",
+            securityAdvisor: "#3C6E71",
+            assetMapper: "#0f766e",
             riskScorer: "#f87171",
-            threatmodeler: "#8B5CF6",
-            irplanner: "#ef4444",
+            threatModeler: "#8B5CF6",
+            irPlanner: "#ef4444",
           };
 
           if (node.type === "area") {
