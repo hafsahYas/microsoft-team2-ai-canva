@@ -38,8 +38,8 @@ const nodeTypes = {
   area: AreaNode,
   custom: BoxNode,
   riskScorer: BoxNode,
-  "threat-modeler": BoxNode,
- "irplanner": BoxNode,
+  threatmodeler: BoxNode,
+  irplanner: BoxNode,
 };
 
 export default function Canvas() {
@@ -269,8 +269,8 @@ export default function Canvas() {
             timer: "#06b6d4",
             assetmapper: "#0f766e",
             riskScorer: "#f87171",
-            "threat-modeler": "#8B5CF6",
-            "irplanner": "#ef4444",
+            threatmodeler: "#8B5CF6",
+            irplanner: "#ef4444",
           };
 
           if (node.type === "area") {

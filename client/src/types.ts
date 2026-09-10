@@ -1,6 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "assetmapper" | "custom";
-
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "irplanner" | "threat-modeler" | "riskScorer";
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "irplanner" | "threatmodeler" | "riskScorer" | "assetmapper";
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
 /** A single slide in a generated deck. */
@@ -471,7 +469,7 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 360,
     defaultHeight: 360,
   },
-  "threat-modeler": {
+  threatmodeler: {
     label: "Threat Modeler",
     icon: "🧠",
     color: "#8B5CF6",
