@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom";
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "irplanner" | "note" | "label" | "timer" | "custom";
 
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
@@ -223,6 +223,25 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 320,
     defaultHeight: 320,
   },
+
+  irplanner: {
+    label: "IR Planner",
+    icon: "🚨",
+    color: "#ef4444",
+    description:
+      "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+       "Create a structured incident response plan based on the incident information below. Align the plan with SANS PICERL and NIST SP 800-61 Rev. 2.\n\nUse clear Markdown headings and bullet points. Do NOT use Markdown tables or HTML tags such as <br>.\n\n## 1. Preparation\n- Response roles and responsibilities\n- Communication and escalation planning\n- Documentation requirements\n- Access requirements and preparedness resources\n- Identify organisation-specific decisions that require human input\n\n## 2. Detection and Analysis\n- Summarise the reported incident and known facts\n- Identify relevant precursors and indicators where applicable\n- Describe evidence and data sources that should be reviewed\n- Explain how the incident should be scoped and prioritised\n- Identify required notifications\n\n## 3. Containment\n- Recommend appropriate short-term containment actions\n- Recommend longer-term containment considerations\n- Consider potential damage, service availability, resources, and evidence preservation\n- Highlight actions that require human approval before execution\n\n## 4. Eradication\n- Describe steps for removing the root cause\n- Address malicious content, compromised accounts, backdoors, or vulnerabilities where supported by the evidence\n- Include relevant documentation and evidence-retention considerations\n\n## 5. Recovery\n- Describe safe restoration and validation steps\n- Include testing and monitoring requirements\n- Explain how to verify that affected systems are clean and functional\n- Identify restoration timing and monitoring decisions that require human approval\n\n## 6. Lessons Learned / Post-Incident Activity\n- Provide a play-by-play review covering who, what, where, when, why, and how\n- Identify what worked and what did not\n- Recommend improvements to the response process and security controls\n- Include incident cost and impact tracking where information is available\n- Identify evidence and documentation that should be retained\n\nClearly distinguish known facts from assumptions. Do not invent incident details, severity thresholds, organisational policies, legal requirements, law-enforcement requirements, authority levels, or other organisation-specific decisions. Mark missing or organisation-specific decisions as [HUMAN DECISION REQUIRED] and list clarification questions where necessary.\n\nIncident information:\n{{inputs}}",
+    defaultSystemPrompt:
+      `You are an incident response planning assistant. Generate a practical draft incident response plan using SANS PICERL and NIST SP 800-61 Rev. 2 as the structural framework.\n\nFORMAT RULES: Output ONLY plain Markdown headings, numbered lists, and bullet points. NEVER use the pipe character \"|\" for tables. NEVER create Markdown tables. NEVER use HTML tags such as <br>. NEVER use HTML formatting. Do not create table-like layouts. Use bullet points instead of tables.\n\nThe plan must contain these six sections:
+       `,
+     defaultWidth: 400,
+    defaultHeight: 520,
+  },
+
   image: {
     label: "Image",
     icon: "🖼️",

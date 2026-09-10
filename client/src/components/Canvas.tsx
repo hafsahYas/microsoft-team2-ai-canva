@@ -41,6 +41,7 @@ const nodeTypes = {
   timer: BoxNode,
   area: AreaNode,
   custom: BoxNode,
+ "irplanner": BoxNode,
 };
 
 export default function Canvas() {
@@ -213,6 +214,7 @@ export default function Canvas() {
             note: "#fbbf24",
             label: "#64748b",
             timer: "#06b6d4",
+            "irplanner": "#ef4444",
           };
           if (node.type === "area") {
             // Areas are near-white on the minimap — use their border shade.
