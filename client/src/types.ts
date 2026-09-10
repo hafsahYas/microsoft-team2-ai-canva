@@ -427,10 +427,11 @@ STRIDE Categories:
 For each asset, identify:
 1. Which STRIDE threats apply
 2. A description of the threat
-3. The potential impact (High, Medium, Low)
+3. The relevant MITRE ATT&CK technique(s) or tactic(s), where a clear mapping exists. If no clear mapping applies, write "No clear mapping".
+4. The potential impact (High, Medium, Low)
 
 Output a table with these columns:
-| Asset Name | Threat Type | Description | Impact |
+| Asset Name | Threat Type | Description | MITRE ATT&CK | Impact |
 
 Asset Inventory:
 {{inputs}}`,
@@ -443,12 +444,14 @@ Rules:
 1. Use STRIDE methodology: Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege
 2. For each asset, identify ALL relevant threat types
 3. For each threat, provide a clear description of the attack vector
-4. Rate the impact as High, Medium, or Low based on the asset's classification
-5. If an asset has Restricted classification, threats typically have High impact
-6. If an asset has Public classification, threats typically have Low impact
+4. Map each threat to relevant MITRE ATT&CK technique(s) or tactic(s) where a clear mapping exists. If no clear mapping applies, write "No clear mapping" rather than guessing.
+5. Rate the impact as High, Medium, or Low based on the asset's classification
+6. If an asset has Restricted classification, threats typically have High impact
+7. If an asset has Public classification, threats typically have Low impact
 
 Reference standards:
 - STRIDE Threat Modeling Methodology
+- MITRE ATT&CK Framework
 - NIST SP 800-30 (Threat Identification)
 - ISO 27001 Annex A 8.25 (Secure Development)`,
 
