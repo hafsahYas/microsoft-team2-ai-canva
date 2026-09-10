@@ -1,5 +1,6 @@
 export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "riskScorer";
 
+export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "irplanner" | "threat-modeler";
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
 /** A single slide in a generated deck. */
@@ -223,6 +224,25 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 320,
     defaultHeight: 320,
   },
+
+  irplanner: {
+    label: "IR Planner",
+    icon: "🚨",
+    color: "#ef4444",
+    description:
+      "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+       "Create a structured incident response plan based on the incident information below. Align the plan with SANS PICERL and NIST SP 800-61 Rev. 2.\n\nUse clear Markdown headings and bullet points. Do NOT use Markdown tables or HTML tags such as <br>.\n\n## 1. Preparation\n- Response roles and responsibilities\n- Communication and escalation planning\n- Documentation requirements\n- Access requirements and preparedness resources\n- Identify organisation-specific decisions that require human input\n\n## 2. Detection and Analysis\n- Summarise the reported incident and known facts\n- Identify relevant precursors and indicators where applicable\n- Describe evidence and data sources that should be reviewed\n- Explain how the incident should be scoped and prioritised\n- Identify required notifications\n\n## 3. Containment\n- Recommend appropriate short-term containment actions\n- Recommend longer-term containment considerations\n- Consider potential damage, service availability, resources, and evidence preservation\n- Highlight actions that require human approval before execution\n\n## 4. Eradication\n- Describe steps for removing the root cause\n- Address malicious content, compromised accounts, backdoors, or vulnerabilities where supported by the evidence\n- Include relevant documentation and evidence-retention considerations\n\n## 5. Recovery\n- Describe safe restoration and validation steps\n- Include testing and monitoring requirements\n- Explain how to verify that affected systems are clean and functional\n- Identify restoration timing and monitoring decisions that require human approval\n\n## 6. Lessons Learned / Post-Incident Activity\n- Provide a play-by-play review covering who, what, where, when, why, and how\n- Identify what worked and what did not\n- Recommend improvements to the response process and security controls\n- Include incident cost and impact tracking where information is available\n- Identify evidence and documentation that should be retained\n\nClearly distinguish known facts from assumptions. Do not invent incident details, severity thresholds, organisational policies, legal requirements, law-enforcement requirements, authority levels, or other organisation-specific decisions. Mark missing or organisation-specific decisions as [HUMAN DECISION REQUIRED] and list clarification questions where necessary.\n\nIncident information:\n{{inputs}}",
+    defaultSystemPrompt:
+      `You are an incident response planning assistant. Generate a practical draft incident response plan using SANS PICERL and NIST SP 800-61 Rev. 2 as the structural framework.\n\nFORMAT RULES: Output ONLY plain Markdown headings, numbered lists, and bullet points. NEVER use the pipe character \"|\" for tables. NEVER create Markdown tables. NEVER use HTML tags such as <br>. NEVER use HTML formatting. Do not create table-like layouts. Use bullet points instead of tables.\n\nThe plan must contain these six sections:
+       `,
+     defaultWidth: 400,
+    defaultHeight: 520,
+  },
+
   image: {
     label: "Image",
     icon: "🖼️",
@@ -419,6 +439,58 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
       "You are a security risk analyst using a likelihood x impact scoring model consistent with NIST 800-30 and FAIR risk assessment principles. Be specific and realistic in your scoring — avoid rating everything as high risk. Justify each score briefly so a non-expert can follow your reasoning. Output in Markdown as a clear table.",
     defaultWidth: 360,
     defaultHeight: 360,
+  
+  "threat-modeler": {
+    label: "Threat Modeler",
+    icon: "🧠",
+    color: "#8B5CF6",
+    description: "Identifies threats and attack vectors for assets using STRIDE methodology. Analyzes asset inventory and generates a threat list with severity ratings.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: `Based on the connected asset inventory below, analyze each asset and identify potential threats using the STRIDE methodology.
+
+STRIDE Categories:
+- Spoofing: Can someone impersonate a user or system?
+- Tampering: Can someone modify data maliciously?
+- Repudiation: Can someone deny performing an action?
+- Information Disclosure: Can sensitive data be exposed?
+- Denial of Service: Can the asset be made unavailable?
+- Elevation of Privilege: Can someone gain unauthorized access?
+
+For each asset, identify:
+1. Which STRIDE threats apply
+2. A description of the threat
+3. The relevant MITRE ATT&CK technique(s) or tactic(s), where a clear mapping exists. If no clear mapping applies, write "No clear mapping".
+4. The potential impact (High, Medium, Low)
+
+Output a table with these columns:
+| Asset Name | Threat Type | Description | MITRE ATT&CK | Impact |
+
+Asset Inventory:
+{{inputs}}`,
+
+    defaultSystemPrompt: `You are a threat modeling expert specializing in STRIDE methodology.
+
+Your task is to analyze an asset inventory and identify all relevant threats for each asset.
+
+Rules:
+1. Use STRIDE methodology: Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege
+2. For each asset, identify ALL relevant threat types
+3. For each threat, provide a clear description of the attack vector
+4. Map each threat to relevant MITRE ATT&CK technique(s) or tactic(s) where a clear mapping exists. If no clear mapping applies, write "No clear mapping" rather than guessing.
+5. Rate the impact as High, Medium, or Low based on the asset's classification
+6. If an asset has Restricted classification, threats typically have High impact
+7. If an asset has Public classification, threats typically have Low impact
+
+Reference standards:
+- STRIDE Threat Modeling Methodology
+- MITRE ATT&CK Framework
+- NIST SP 800-30 (Threat Identification)
+- ISO 27001 Annex A 8.25 (Secure Development)`,
+
+    defaultWidth: 360,
+    defaultHeight: 380,
   },
 };
 
