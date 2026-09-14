@@ -10,10 +10,43 @@ import {
   type EdgeChange,
   type Connection,
 } from "@xyflow/react";
-import type { BoxData, BoxType, BoxStatus, NamedInput, AgentStep } from "../types.js";
+import type { BoxData, BoxType, BoxStatus, NamedInput, AgentStep, ChatMessage, DeployInfo, FileChange, EditMeta, ArtifactVersion, SdlcEvent, SdlcStage, RepoMeta, ChecklistItem } from "../types.js";
 import { BOX_TYPES, AGENT_CONTROLLER_SYSTEM_PROMPT } from "../types.js";
-import { generate, generateImage, generateStitchUI } from "../lib/api.js";
+import { buildCodeMapPrompt, resolveRepoRef } from "../lib/repo.js";
+import {
+  buildEditPrompt,
+  buildPatch,
+  changeSetChars,
+  lineDiff,
+  MAX_CHANGE_SET_CHARS,
+  parseChangeSet,
+  parsePathList,
+  parsePlanFiles,
+  parseTriage,
+  renderChangeSet,
+  validateChangeSet,
+  type KnownFile,
+} from "../lib/codeedit.js";
+import {
+  appendEvent,
+  appendVersion,
+  buildStagePrompt,
+  crossCheckSpecDecisions,
+  downstreamIds,
+  forcedGateReason,
+  isSdlcBox,
+  latestVersion,
+  parseDeviation,
+  parseFindings,
+  parseOpenItems,
+  sdlcStageMeta,
+  truncateArtifact,
+  upstreamBlockReason,
+  upstreamStageContent,
+} from "../lib/sdlc.js";
+import { generate, generateImage, generateStitchUI, fetchRepoDigest, publishSite } from "../lib/api.js";
 import { fillPromptTemplate, getBoxOutput } from "../lib/prompts.js";
+import { buildChatSystemPrompt, buildConversationTurn, chatbotName, greetingMessage, trimChatMessages } from "../lib/chatbot.js";
 import {
   MAX_AGENT_TURNS,
   MAX_PARSE_RETRIES,
@@ -26,7 +59,13 @@ import {
   clip,
 } from "../lib/agent.js";
 import { buildDocumentsOutput } from "../lib/documents.js";
-import { extractCode } from "../lib/code.js";
+import { buildCodeChangePrompt, extractCode, isCompletePrototype } from "../lib/code.js";
+import {
+  deployBlockedReason,
+  deployFilesFor,
+  deploySiteTitle,
+  validateDeploySet,
+} from "../lib/deploy.js";
 import { parseSlidesResponse } from "../lib/slides.js";
 import { cleanBoxDataForFirestore } from "../lib/serialization.js";
 import { DEFAULT_TIMER_MS } from "../lib/timer.js";
@@ -155,6 +194,29 @@ function collectInputs(
   return { namedInputs, inputImage };
 }
 
+/** A deploy record with every field defined (Firestore rejects `undefined`). */
+function emptyDeployInfo(): DeployInfo {
+  return {
+    slug: "",
+    url: "",
+    versionId: "",
+    claimToken: "",
+    claimUrl: "",
+    anonymous: true,
+    expiresAt: "",
+    deployedAt: 0,
+    fileCount: 0,
+    bytes: 0,
+    warnings: [],
+    error: "",
+  };
+}
+
+/** Box types whose output is code a change request can be applied to. */
+function isCodeBoxType(type: BoxType | string): boolean {
+  return type === "code" || type === "ui";
+}
+
 function defaultBoxData(type: BoxType): BoxData {
   const meta = BOX_TYPES[type];
   return {
@@ -168,6 +230,24 @@ function defaultBoxData(type: BoxType): BoxData {
     documents: undefined,
     ...(type === "timer"
       ? { timerDurationMs: DEFAULT_TIMER_MS, timerStatus: "idle" as const }
+      : null),
+    // Checklist boxes: the shared task array is created EMPTY but DEFINED
+    // (Firestore-safe, and the panel can rely on it existing).
+    ...(type === "checklist" ? { checklistItems: [] } : null),
+    // SDLC stage boxes start with empty, ALWAYS-DEFINED records: Firestore
+    // rejects `undefined` anywhere inside a nested value, and these arrays are
+    // append-only for the whole life of the board.
+    ...(isSdlcBox(type)
+      ? {
+          sdlcVersions: [],
+          sdlcHistory: [],
+          sdlcFindings: [],
+          sdlcOpenItems: [],
+          sdlcGaps: [],
+          sdlcDeviation: false,
+          sdlcGateRequired: true,
+          skills: "",
+        }
       : null),
   };
 }
@@ -205,6 +285,55 @@ interface BoardState {
   connectBoxes: (sourceId: string, targetId: string) => boolean;
   /** Ask a running Agent box to stop after its current turn. */
   stopAgent: (id: string) => void;
+  /** Chatbot companion — send one chat message (the bot replies async). */
+  sendChatMessage: (id: string, text: string) => Promise<void>;
+  /** Reset a chatbot's conversation to the greeting. */
+  clearChat: (id: string) => void;
+  /**
+   * Checklist box (collab): replace the shared task list. Every mutation is a
+   * pure function in `lib/checklist.ts` (add/parse, toggle with attribution,
+   * assign, rename, reorder, clear done) — the store only stores the result,
+   * so the whole list syncs to collaborators through the normal board save.
+   */
+  setChecklistItems: (id: string, items: ChecklistItem[]) => void;
+  /** Place a chatbot node (Canvas auto-places it at the viewport bottom). */
+  placeChatbot: (id: string, position: { x: number; y: number }) => void;
+
+  // === SDLC pipeline gates (see client/src/lib/sdlc.ts) ===
+  /** Record a human approval of a stage's latest artifact version. */
+  approveArtifact: (id: string, note?: string) => void;
+  /** Send a stage back with feedback — injected into the next regeneration. */
+  requestChanges: (id: string, note: string) => void;
+  /** Reject a stage's artifact outright (versions are kept). */
+  rejectArtifact: (id: string, note: string) => void;
+  /** Save a human-edited artifact as a NEW version (never overwrites). */
+  editArtifact: (id: string, content: string, note?: string) => void;
+  /** Dismiss one review finding (unlocks the review gate when none block). */
+  dismissFinding: (id: string, findingId: string) => void;
+  /**
+   * Publish this box's code to a live here.now URL (Code, UI Design, Stitch UI
+   * and Code Edit boxes). The first call creates the Site; later calls update the
+   * same one, sending its version back so a Site someone else changed is refused
+   * rather than clobbered. The claim token (anonymous Sites) is kept on the box,
+   * because here.now returns it only once.
+   */
+  deployBox: (id: string) => Promise<void>;
+  /**
+   * Code / UI boxes: apply an AI change request to the code already in the box.
+   * The reply replaces `code` but is appended as a new version first, so the
+   * previous code is always recoverable.
+   */
+  applyChangeRequest: (id: string) => Promise<void>;
+  /** Code / UI boxes: restore a previous code version (appended, never deleted). */
+  revertCodeVersion: (id: string, version: number) => void;
+  /** Code Edit: replace one file's proposed content (recomputes the diff). */
+  setChangeSetFile: (id: string, path: string, content: string) => void;
+  /**
+   * Toggle whether downstream stages must wait for this stage's approval.
+   * Returns false when the app refuses the configuration (hard gates and
+   * forced-gate conditions can never auto-advance).
+   */
+  setSdlcGateRequired: (id: string, required: boolean) => boolean;
 
   setBoxStatus: (id: string, status: BoxStatus, error?: string) => void;
 
@@ -269,7 +398,13 @@ export const useBoardStore = create<BoardState>()(
             x: 200 + Math.random() * 200,
             y: 150 + Math.random() * 100,
           },
-          data: { boxType: type, title: `${meta.label} Box` },
+          data: {
+            boxType: type,
+            // Chatbots get a friendly companion name instead of "… Box",
+            // and are auto-placed at the viewport bottom by Canvas.
+            title: type === "chatbot" ? "Chat Pal" : `${meta.label} Box`,
+            ...(type === "chatbot" ? { autoPlace: true } : null),
+          },
           style: { width: meta.defaultWidth, height: meta.defaultHeight },
         };
 
@@ -289,6 +424,10 @@ export const useBoardStore = create<BoardState>()(
                       useAuthStore.getState().user?.email ||
                       "Someone",
                   }
+                : null),
+              // Chatbots start with a greeting so the panel isn't empty.
+              ...(type === "chatbot"
+                ? { chatMessages: [greetingMessage("Chat Pal")] }
                 : null),
             },
           },
@@ -407,6 +546,360 @@ export const useBoardStore = create<BoardState>()(
         get().updateBoxData(id, { status, error });
       },
 
+      // === SDLC pipeline gates ===
+      // Every action appends to the box's audit trail; nothing is ever removed
+      // (an artifact version, a rejection and a re-approval all stay queryable).
+
+      approveArtifact: (id, note) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return;
+        const latest = latestVersion(data.sdlcVersions);
+        if (!latest) return;
+        const type = (node.data.boxType || node.type) as BoxType;
+        const actor = actorName();
+        get().updateBoxData(id, {
+          sdlcGate: "approved",
+          sdlcApprovedVersion: latest.version,
+          sdlcApprovedBy: actor,
+          sdlcApprovedAt: Date.now(),
+          sdlcHistory: appendEvent(data.sdlcHistory, {
+            actor,
+            action: `approved ${sdlcStageMeta(type)?.stage || "stage"} v${latest.version}`,
+            note,
+          }),
+        });
+      },
+
+      requestChanges: (id, note) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return;
+        const type = (node.data.boxType || node.type) as BoxType;
+        const latest = latestVersion(data.sdlcVersions);
+        const actor = actorName();
+        get().updateBoxData(id, {
+          sdlcGate: "changes_requested",
+          sdlcFeedback: note || "",
+          sdlcApprovedVersion: undefined,
+          sdlcApprovedBy: undefined,
+          sdlcApprovedAt: undefined,
+          sdlcHistory: appendEvent(data.sdlcHistory, {
+            actor,
+            action: `requested changes on ${sdlcStageMeta(type)?.stage || "stage"}${latest ? ` v${latest.version}` : ""}`,
+            note,
+          }),
+        });
+        // The approved artifact is no longer the accepted one: anything that was
+        // approved downstream of it must be re-approved.
+        invalidateSdlcDownstream(id, actor);
+      },
+
+      rejectArtifact: (id, note) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return;
+        const type = (node.data.boxType || node.type) as BoxType;
+        const latest = latestVersion(data.sdlcVersions);
+        const actor = actorName();
+        get().updateBoxData(id, {
+          sdlcGate: "rejected",
+          sdlcFeedback: note || "",
+          sdlcApprovedVersion: undefined,
+          sdlcApprovedBy: undefined,
+          sdlcApprovedAt: undefined,
+          sdlcHistory: appendEvent(data.sdlcHistory, {
+            actor,
+            action: `rejected ${sdlcStageMeta(type)?.stage || "stage"}${latest ? ` v${latest.version}` : ""}`,
+            note,
+          }),
+        });
+        invalidateSdlcDownstream(id, actor);
+      },
+
+      editArtifact: (id, content, note) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return;
+        const type = (node.data.boxType || node.type) as BoxType;
+        const meta = sdlcStageMeta(type);
+        const actor = actorName();
+        const versions = appendVersion(data.sdlcVersions, {
+          content,
+          createdBy: actor,
+          source: "edited",
+          note,
+        });
+        const newVersion = versions[versions.length - 1].version;
+        let history = appendEvent(data.sdlcHistory, {
+          actor,
+          action: `edited ${meta?.stage || "stage"} v${newVersion}`,
+          note,
+        });
+
+        // Re-derive the app-side cross-checks from the edited text: a human who
+        // resolves the spec's open questions by editing it must actually unblock
+        // the stage.
+        const derived = deriveStageCrossChecks(
+          meta?.stage,
+          content,
+          meta ? upstreamStageContent(get().nodes, get().edges, get().boxData, id, "spec") : "",
+          history
+        );
+
+        get().updateBoxData(id, {
+          output: content,
+          status: "done",
+          error: undefined,
+          sdlcVersions: versions,
+          sdlcGate: "pending",
+          sdlcApprovedVersion: undefined,
+          sdlcApprovedBy: undefined,
+          sdlcApprovedAt: undefined,
+          sdlcHistory: derived.history,
+          ...derived.patch,
+        });
+        invalidateSdlcDownstream(id, actor);
+      },
+
+      dismissFinding: (id, findingId) => {
+        const data = get().boxData[id];
+        if (!data) return;
+        const actor = actorName();
+        const findings = (data.sdlcFindings || []).map((f) =>
+          f.id === findingId ? { ...f, dismissed: true, dismissedBy: actor } : f
+        );
+        const target = findings.find((f) => f.id === findingId);
+        if (!target) return;
+        get().updateBoxData(id, {
+          sdlcFindings: findings,
+          sdlcHistory: appendEvent(data.sdlcHistory, {
+            actor,
+            action: `dismissed a ${target.severity} finding`,
+            note: target.description,
+          }),
+        });
+      },
+
+      applyChangeRequest: async (id) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return;
+        if (data.status === "running") return;
+        const boxType = (node.data.boxType || node.type) as BoxType;
+        if (!isCodeBoxType(boxType)) return;
+
+        const current = data.code || "";
+        if (!current.trim()) {
+          get().setBoxStatus(id, "error", "Generate the code first — then you can request changes to it.");
+          return;
+        }
+
+        // Upstream boxes may carry the request (e.g. a Review box's findings).
+        const { namedInputs } = collectInputs(get().nodes, get().edges, get().boxData, id, { skipSelf: true });
+        const typed = (data.changePrompt || "").trim();
+        const upstream = namedInputs.map((i) => (i.output || "").trim()).filter(Boolean).join("\n\n");
+        const request = typed || upstream;
+        if (!request) {
+          get().setBoxStatus(
+            id,
+            "error",
+            "Say what to change (the “Request a change” field), or connect a box that says it."
+          );
+          return;
+        }
+
+        get().setBoxStatus(id, "running");
+        try {
+          const userPrompt = buildCodeChangePrompt({
+            code: current,
+            request,
+            context: typed ? namedInputs : [],
+          });
+          const result = await generateTextForBox(id, {
+            systemPrompt: data.systemPrompt,
+            userPrompt,
+            boxType,
+          });
+
+          const next = extractCode(result.content || "");
+          if (!isCompletePrototype(next)) {
+            get().setBoxStatus(
+              id,
+              "error",
+              "The change returned incomplete code (no App component / render call), so the existing code was kept. Try rephrasing the change."
+            );
+            return;
+          }
+          if (next === current) {
+            get().updateBoxData(id, {
+              status: "done",
+              error: undefined,
+              // Keep the request in the field so it can be tweaked and retried.
+              codeVersions: data.codeVersions || [],
+            });
+            return;
+          }
+
+          const versions = appendVersion(data.codeVersions, {
+            content: next,
+            createdBy: actorName(),
+            source: "generated",
+            note: request.length > 200 ? request.slice(0, 200) + "…" : request,
+          });
+          get().updateBoxData(id, {
+            code: next,
+            output: result.content,
+            status: "done",
+            error: undefined,
+            codeVersions: versions,
+            codeVersion: versions[versions.length - 1].version,
+            changePrompt: "",
+          });
+        } catch (err: any) {
+          get().setBoxStatus(id, "error", err.message || "Could not apply the change");
+        }
+      },
+
+      deployBox: async (id) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return;
+        if (data.status === "running") return;
+        const boxType = (node.data.boxType || node.type) as BoxType;
+
+        const blocked = deployBlockedReason(boxType, data);
+        if (blocked) {
+          get().setBoxStatus(id, "error", blocked);
+          return;
+        }
+        const files = deployFilesFor(boxType, data);
+        const invalid = validateDeploySet(files);
+        if (invalid) {
+          get().setBoxStatus(id, "error", invalid);
+          return;
+        }
+
+        const previous = data.deploy;
+        get().setBoxStatus(id, "running");
+        try {
+          const title = deploySiteTitle(
+            boxType,
+            data,
+            (node.data?.title as string) || "",
+            get().boardTitle || ""
+          );
+          const result = await publishSite({
+            files,
+            displayName: title.displayName,
+            displayDescription: title.displayDescription,
+            // Redeploy the SAME Site when we already made one. The version goes
+            // back so here.now refuses the update if the live Site moved on.
+            ...(previous?.slug
+              ? {
+                  slug: previous.slug,
+                  baseVersionId: previous.versionId || undefined,
+                  claimToken: previous.claimToken || undefined,
+                }
+              : null),
+          });
+
+          get().updateBoxData(id, {
+            status: "done",
+            error: undefined,
+            deploy: {
+              slug: result.slug || previous?.slug || "",
+              url: result.siteUrl || previous?.url || "",
+              versionId: result.versionId || "",
+              // here.now returns the claim token exactly once: keep the old one if
+              // an update response did not repeat it.
+              claimToken: result.claimToken || previous?.claimToken || "",
+              claimUrl: result.claimUrl || previous?.claimUrl || "",
+              anonymous: result.anonymous !== false,
+              expiresAt: result.expiresAt || previous?.expiresAt || "",
+              deployedAt: Date.now(),
+              fileCount: result.fileCount || files.length,
+              bytes: result.bytes || 0,
+              warnings: Array.isArray(result.warnings) ? result.warnings : [],
+              error: "",
+            },
+          });
+        } catch (err: any) {
+          const message = err?.message || "Could not publish the site";
+          get().updateBoxData(id, {
+            status: "error",
+            error: message,
+            deploy: {
+              ...(previous || emptyDeployInfo()),
+              deployedAt: previous?.deployedAt || 0,
+              error: message,
+            },
+          });
+        }
+      },
+
+      revertCodeVersion: (id, version) => {
+        const data = get().boxData[id];
+        if (!data) return;
+        const target = (data.codeVersions || []).find((v) => v.version === version);
+        if (!target) return;
+        // History is append-only: a revert is itself a new version.
+        const versions = appendVersion(data.codeVersions, {
+          content: target.content,
+          createdBy: actorName(),
+          source: "edited",
+          note: `reverted to v${version}`,
+        });
+        get().updateBoxData(id, {
+          code: target.content,
+          status: "done",
+          error: undefined,
+          codeVersions: versions,
+          codeVersion: versions[versions.length - 1].version,
+        });
+      },
+
+      setChangeSetFile: (id, path, content) => {
+        const data = get().boxData[id];
+        if (!data || !data.changeSet) return;
+        const index = data.changeSet.findIndex((c) => c.path === path);
+        if (index === -1) return;
+        const current = data.changeSet[index];
+        const next = { ...current, content };
+        const diff = lineDiff(next.operation === "create" ? "" : next.original, content);
+        next.added = diff.added;
+        next.removed = diff.removed;
+        const changeSet = [...data.changeSet];
+        changeSet[index] = next;
+        const summary = (data.editMeta?.notes[0] || "").trim();
+        get().updateBoxData(id, {
+          changeSet,
+          output: renderChangeSet(changeSet, summary),
+        });
+      },
+
+      setSdlcGateRequired: (id, required) => {
+        const data = get().boxData[id];
+        const node = get().nodes.find((n) => n.id === id);
+        if (!data || !node) return false;
+        const type = (node.data.boxType || node.type) as BoxType;
+        const forced = forcedGateReason(type, data);
+        // Reject the configuration outright rather than silently allowing it:
+        // Intent/Merge and any stage with an unresolved condition stay gated.
+        if (!required && forced) return false;
+        get().updateBoxData(id, {
+          sdlcGateRequired: required,
+          sdlcHistory: appendEvent(data.sdlcHistory, {
+            actor: actorName(),
+            action: required
+              ? "re-enabled the approval gate for this stage"
+              : "set this stage to auto-advance (no approval required)",
+            note: "",
+          }),
+        });
+        return true;
+      },
+
       connectBoxes: (sourceId, targetId) => {
         if (!sourceId || !targetId || sourceId === targetId) return false;
         const edges = get().edges;
@@ -450,6 +943,129 @@ export const useBoardStore = create<BoardState>()(
             },
           ],
         });
+      },
+
+      // === Chatbot companion ===
+
+      clearChat: (id) => {
+        const node = get().nodes.find((n) => n.id === id);
+        const name = chatbotName(node?.data?.title as string);
+        get().updateBoxData(id, {
+          chatMessages: [greetingMessage(name)],
+          status: "idle",
+          error: undefined,
+        });
+      },
+
+      // Checklist box (collab): the store only persists the result of the pure
+      // mutations in lib/checklist.ts. A no-op edit returns the same array, so
+      // that write never happens.
+      setChecklistItems: (id, items) => {
+        const data = get().boxData[id];
+        if (!data) return;
+        // The pure mutators keep the reference of every task they did not
+        // touch, so an all-identical list means "nothing changed" — skip the
+        // write entirely rather than re-saving the same board.
+        const prev = data.checklistItems || [];
+        if (prev.length === items.length && prev.every((it, i) => it === items[i])) return;
+        get().updateBoxData(id, { checklistItems: items });
+      },
+
+      placeChatbot: (id, position) => {
+        set({
+          nodes: get().nodes.map((n) =>
+            n.id === id
+              ? { ...n, position, data: { ...n.data, autoPlace: false } }
+              : n
+          ),
+        });
+        scheduleSave();
+      },
+
+      sendChatMessage: async (id, text) => {
+        const trimmed = (text || "").trim();
+        if (!trimmed) return;
+        const node = get().nodes.find((n) => n.id === id);
+        const data = get().boxData[id];
+        if (!node || !data) return;
+        if (data.status === "running") return;
+
+        const name = chatbotName(node.data?.title as string);
+        const user = useAuthStore.getState().user;
+        const by = user?.displayName || user?.email || "Someone";
+        const userMsg: ChatMessage = {
+          id: makeId(),
+          role: "user",
+          text: trimmed,
+          at: Date.now(),
+          by,
+        };
+        const history = trimChatMessages([...(data.chatMessages || []), userMsg]);
+        get().updateBoxData(id, {
+          chatMessages: history,
+          status: "running",
+          error: undefined,
+        });
+
+        try {
+          // Live board snapshot for context — the companion sees every box,
+          // but not other chatbots or itself.
+          const cur = get();
+          const inventory = buildBoardInventory(
+            cur.nodes.filter((n) => n.type !== "chatbot"),
+            cur.edges,
+            cur.boxData
+          );
+          const systemPrompt = buildChatSystemPrompt(
+            name,
+            cur.boxData[id]?.personality,
+            inventory
+          );
+
+          const result = await generate({
+            systemPrompt,
+            userPrompt: buildConversationTurn(history, name),
+          });
+          if (result.error) throw new Error(result.error);
+
+          // Token accounting — same ledger as other boxes, cumulative here.
+          const prevTokens = get().boxData[id]?.tokens;
+          if (result.usage) {
+            get().updateBoxData(id, {
+              tokens: {
+                promptTokens:
+                  (prevTokens?.promptTokens || 0) + result.usage.promptTokens,
+                completionTokens:
+                  (prevTokens?.completionTokens || 0) +
+                  result.usage.completionTokens,
+                totalTokens:
+                  (prevTokens?.totalTokens || 0) + result.usage.totalTokens,
+              },
+            });
+            const u = useAuthStore.getState().user;
+            if (u) {
+              recordTokenUsage(u.uid, get().currentBoardId || "", id, "chatbot", result.usage);
+              useTokenStore.getState().addTokens(result.usage.totalTokens);
+            }
+          }
+
+          const botMsg: ChatMessage = {
+            id: makeId(),
+            role: "bot",
+            text: (result.content || "").trim() || "…",
+            at: Date.now(),
+          };
+          // Re-read: another collaborator may have chatted while we waited.
+          const live = get().boxData[id];
+          get().updateBoxData(id, {
+            chatMessages: trimChatMessages([...(live?.chatMessages || []), botMsg]),
+            status: "done",
+            error: undefined,
+          });
+        } catch (err: any) {
+          // The user's message is kept — the panel shows the error + Retry.
+          get().setBoxStatus(id, "error", err?.message || "Chat failed");
+        }
       },
 
       // --- Firestore board operations ---
@@ -725,10 +1341,17 @@ export const useBoardStore = create<BoardState>()(
 
         const boxType = (node.data.boxType || node.type) as BoxType;
 
-        // Collaboration boxes (note / label / timer) have no AI to run — the
-        // Run button is hidden for them. Guard here too so no future caller
-        // falls into the text-AI branch.
-        if (boxType === "note" || boxType === "label" || boxType === "timer") {
+        // Collaboration boxes (note / label / timer / checklist) have no AI to
+        // run — the Run button is hidden for them. Guard here too so no future
+        // caller falls into the text-AI branch.
+        // The chatbot talks via sendChatMessage, never via runBox.
+        if (
+          boxType === "note" ||
+          boxType === "label" ||
+          boxType === "timer" ||
+          boxType === "checklist" ||
+          boxType === "chatbot"
+        ) {
           return;
         }
 
@@ -736,6 +1359,28 @@ export const useBoardStore = create<BoardState>()(
         // boxes on the board) — it manages its own status and inputs.
         if (boxType === "agent") {
           await runAgentLoop(id);
+          return;
+        }
+
+        // SDLC stage boxes run through the gated pipeline: the gate is checked
+        // before the model call, the artifact is appended as a new immutable
+        // version, and dependent approvals are invalidated.
+        if (isSdlcBox(boxType)) {
+          await runSdlcStage(id);
+          return;
+        }
+
+        // The Code Map box reads a repository (through the backend) before it
+        // calls the model — it manages its own inputs and prompt assembly.
+        if (boxType === "codemap") {
+          await runCodeMap(id);
+          return;
+        }
+
+        // The Code Edit box reads the files it will change, then proposes a
+        // change set the app turns into a diff and a patch.
+        if (boxType === "codeedit") {
+          await runCodeEdit(id);
           return;
         }
 
@@ -785,36 +1430,18 @@ export const useBoardStore = create<BoardState>()(
               error: undefined,
             });
           } else {
-            // Text generation via the Ollama backend (research, summarize, slides)
+            // Text generation via the Ollama backend (research, summarize,
+            // slides, custom boxes)
             const filledPrompt = fillPromptTemplate(
               data.prompt,
               namedInputs
             );
 
-            const result = await generate({
+            const result = await generateTextForBox(id, {
               systemPrompt: data.systemPrompt,
               userPrompt: filledPrompt,
+              boxType,
             });
-
-            if (result.error) throw new Error(result.error);
-
-            // Record token usage — update the box display, persist to Firestore,
-            // and bump the user's session cumulative total.
-            if (result.usage) {
-              get().updateBoxData(id, { tokens: result.usage });
-              const user = useAuthStore.getState().user;
-              if (user) {
-                recordTokenUsage(
-                  user.uid,
-                  get().currentBoardId || "",
-                  id,
-                  boxType,
-                  result.usage,
-                  result.model
-                );
-                useTokenStore.getState().addTokens(result.usage.totalTokens);
-              }
-            }
 
             if (boxType === "slides") {
               // Parse the LLM's JSON output into a slide deck
@@ -828,17 +1455,27 @@ export const useBoardStore = create<BoardState>()(
             } else if (boxType === "code" || boxType === "ui") {
               // Extract component code from the LLM's response
               const code = extractCode(result.content);
-              // Validate: the code must contain a render call to actually work
-              if (!code.includes("ReactDOM.createRoot") && !code.includes("ReactDOM.render")) {
+              // Validate: the code must be a complete, mountable component
+              if (!isCompletePrototype(code)) {
                 throw new Error(
-                  "Generated code is incomplete (missing ReactDOM render call). Try simplifying the requirements or re-run."
+                  "Generated code is incomplete (missing the App component or the ReactDOM render call). Try simplifying the requirements or re-run."
                 );
               }
+              // Every build is versioned, so an AI change (or a revert) always has
+              // something to fall back to.
+              const versions = appendVersion(data.codeVersions, {
+                content: code,
+                createdBy: actorName(),
+                source: "generated",
+                note: "initial build",
+              });
               get().updateBoxData(id, {
                 output: result.content,
                 code,
                 status: "done",
                 error: undefined,
+                codeVersions: versions,
+                codeVersion: versions[versions.length - 1].version,
               });
             } else {
               // Store text output (research, summarize)
@@ -866,6 +1503,637 @@ export const useBoardStore = create<BoardState>()(
     }
   )
 );
+
+// ============================================================
+// Code Map box — read a repository, then write an orientation brief.
+//
+// The repository is fetched through the backend (/api/repo-digest, see
+// server/src/repo.ts), never from the browser, so a server-side GITHUB_TOKEN can
+// unlock private repositories. The box works without a repository too: it then
+// maps whatever is connected to it (a Documents box, pasted code), and the
+// prompt says explicitly that the repository itself was not read.
+// ============================================================
+
+/** Why the repository could not be read, in the box's own words. */
+function repoFailure(reason: string): RepoMeta {
+  return {
+    repo: "",
+    branch: "",
+    files: 0,
+    treeEntries: 0,
+    chars: 0,
+    truncated: false,
+    fetchedAt: 0,
+    error: reason,
+    notes: [],
+  };
+}
+
+async function runCodeMap(id: string) {
+  const get = () => useBoardStore.getState();
+
+  const node = get().nodes.find((n) => n.id === id);
+  const data = get().boxData[id];
+  if (!node || !data) return;
+  if (data.status === "running") return;
+
+  const { namedInputs } = collectInputs(get().nodes, get().edges, get().boxData, id);
+
+  // The repository can be given in the URL field, in the box's note, in a
+  // customised prompt, or anywhere in a connected box — so pasting a repo link
+  // somewhere sensible always works (the Agent box does exactly that). The stock
+  // prompt is passed separately so its placeholder example is never mistaken for
+  // a repository.
+  const ref = resolveRepoRef({
+    repoUrl: data.repoUrl,
+    content: data.content,
+    prompt: data.prompt,
+    defaultPrompt: BOX_TYPES.codemap.defaultPrompt,
+    inputs: namedInputs,
+  });
+
+  // Something to map must exist: either a repository, or connected/pasted code.
+  const context = namedInputs.map((i) => i.output).join("\n").trim();
+  if (!ref && !context) {
+    get().setBoxStatus(
+      id,
+      "error",
+      "Give this box a GitHub repository (the field above, e.g. https://github.com/owner/repo or owner/repo#branch), or connect code/a Documents box to it."
+    );
+    return;
+  }
+
+  get().setBoxStatus(id, "running");
+
+  let digest = "";
+  let meta: RepoMeta | null = null;
+  let fetchError = "";
+
+  if (ref) {
+    try {
+      const result = await fetchRepoDigest(ref.url);
+      digest = result.digest || "";
+      meta = {
+        repo: result.repo || ref.slug,
+        branch: result.branch || ref.branch || "",
+        files: result.files || 0,
+        treeEntries: result.treeEntries || 0,
+        chars: result.chars || digest.length,
+        truncated: !!result.truncated,
+        fetchedAt: Date.now(),
+        error: "",
+        notes: Array.isArray(result.notes) ? result.notes : [],
+      };
+    } catch (err: any) {
+      fetchError = err?.message || "Could not read the repository.";
+      meta = repoFailure(fetchError);
+      // With connected context we still produce a brief — it just has to be
+      // honest about not having read the repository (buildCodeMapPrompt says so).
+      if (!context) {
+        get().updateBoxData(id, { status: "error", error: fetchError, repoMeta: meta });
+        return;
+      }
+    }
+  } else {
+    fetchError = "No GitHub repository was given — this run maps only the connected context.";
+    meta = repoFailure(fetchError);
+  }
+
+  try {
+    const userPrompt = buildCodeMapPrompt(
+      { prompt: data.prompt, digest, meta, fetchError },
+      namedInputs
+    );
+
+    const result = await generateTextForBox(id, {
+      systemPrompt: data.systemPrompt,
+      userPrompt,
+      boxType: "codemap",
+    });
+
+    get().updateBoxData(id, {
+      output: result.content,
+      status: "done",
+      error: undefined,
+      repoMeta: meta || repoFailure(""),
+    });
+  } catch (err: any) {
+    get().setBoxStatus(id, "error", err.message || "Generation failed");
+  }
+}
+
+// ============================================================
+// Code Edit box — apply a change request to an existing repository.
+//
+// The flow (each step exists to keep the generated edit honest):
+//   1. decide WHICH files to read — pinned on the box, else from an upstream
+//      SDLC Plan's file list, else a cheap triage call over the repo tree;
+//   2. read those files IN FULL through /api/repo-digest (whole-file mode), so
+//      the model never rewrites a file it could not fully see;
+//   3. ask the model for a structured change set of WHOLE files;
+//   4. the APP validates it (safe paths, read files only, size caps) and computes
+//      the diff + the .patch, so the review surface and the patch cannot disagree.
+// Nothing is written to the repository — the deliverable is the patch.
+// ============================================================
+
+/** System prompt for the triage call: which files must be read? */
+const TRIAGE_SYSTEM_PROMPT = `You plan code changes. Given a repository tree and a change request, you name ONLY the files that must be read to make the change — the fewest possible, including any test file that should change with it. Reply with one JSON object: {"files":["path",...],"plan":"one line"}. Never invent a path: every path must appear in the tree.`;
+
+function emptyEditMeta(patch: Partial<EditMeta> = {}): EditMeta {
+  return { source: "none", read: [], missing: [], generatedAt: 0, error: "", notes: [], ...patch };
+}
+
+/** The upstream SDLC Plan's file list, if this box is wired after a plan. */
+function planFilesFor(id: string): { plan: string; files: string[] } {
+  const state = useBoardStore.getState();
+  const plan = upstreamStageContent(state.nodes, state.edges, state.boxData, id, "plan");
+  return { plan, files: parsePlanFiles(plan) };
+}
+
+async function runCodeEdit(id: string) {
+  const get = () => useBoardStore.getState();
+
+  const node = get().nodes.find((n) => n.id === id);
+  const data = get().boxData[id];
+  if (!node || !data) return;
+  if (data.status === "running") return;
+
+  const { namedInputs } = collectInputs(get().nodes, get().edges, get().boxData, id);
+
+  const ref = resolveRepoRef({
+    repoUrl: data.repoUrl,
+    content: data.content,
+    prompt: data.prompt,
+    defaultPrompt: BOX_TYPES.codeedit.defaultPrompt,
+    inputs: namedInputs,
+  });
+  if (!ref) {
+    get().setBoxStatus(
+      id,
+      "error",
+      "Give this box a GitHub repository (the field above, e.g. https://github.com/owner/repo or owner/repo#branch) — an edit needs a starting point."
+    );
+    return;
+  }
+
+  const request = [data.content, ...namedInputs.map((i) => i.output)]
+    .map((text) => (text || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+  if (!request) {
+    get().setBoxStatus(
+      id,
+      "error",
+      "Describe the change you want (the textarea in this box), or connect a box that describes it — there is nothing to apply."
+    );
+    return;
+  }
+
+  get().setBoxStatus(id, "running");
+
+  try {
+    // ---- 1. which files? ----
+    let source = "pinned";
+    let targets = parsePathList(data.filesToEdit);
+    if (targets.length === 0) {
+      const fromPlan = planFilesFor(id);
+      if (fromPlan.files.length > 0) {
+        targets = fromPlan.files;
+        source = "plan";
+      }
+    }
+
+    // An overview fetch: gives the tree (to validate/choose paths) and the ranked
+    // files, which is exactly the context the triage call needs.
+    const overview = await fetchRepoDigest(ref.url);
+    const tree = treeFromDigest(overview.digest);
+
+    if (targets.length === 0) {
+      source = "triage";
+      const triage = await generate({
+        systemPrompt: TRIAGE_SYSTEM_PROMPT,
+        userPrompt:
+          `Change request:\n${request}\n\nRepository tree (${overview.treeEntries} entries):\n` +
+          `${tree.slice(0, 400).join("\n")}\n\n` +
+          `Repository overview:\n${overview.digest.slice(0, 20_000)}`,
+      });
+      if (triage.error) throw new Error(triage.error);
+      targets = parseTriage(triage.content || "").files;
+    }
+
+    if (targets.length === 0) {
+      get().updateBoxData(id, {
+        status: "error",
+        error:
+          "Could not work out which files to change. List them in “Files to change” (one path per line), or make the change request more specific.",
+        editMeta: emptyEditMeta({ source, error: "no target files" }),
+      });
+      return;
+    }
+
+    // ---- 2. read those files IN FULL ----
+    const fileFetch = await fetchRepoDigest(ref.url, targets);
+    const known: KnownFile[] = (fileFetch.contents || []).map((file) => ({
+      path: file.path,
+      content: file.content,
+      clipped: !!file.clipped,
+    }));
+    const missing = [
+      ...(fileFetch.missing || []),
+      ...(fileFetch.contents || []).filter((f) => f.clipped).map((f) => `${f.path} (too large to edit safely)`),
+    ];
+
+    if (known.length === 0) {
+      get().updateBoxData(id, {
+        status: "error",
+        error: `None of the ${targets.length} target file(s) could be read from ${ref.slug}. ${missing.length ? `Missing: ${missing.join(", ")}.` : ""}`,
+        editMeta: emptyEditMeta({ source, missing, error: "no readable target files" }),
+      });
+      return;
+    }
+
+    // ---- 3. ask for the change set ----
+    const userPrompt = buildEditPrompt(
+      {
+        prompt: data.prompt,
+        repo: { slug: `${ref.owner}/${ref.repo}`, branch: fileFetch.branch || ref.branch || "" },
+        tree,
+        files: known,
+        missing,
+      },
+      namedInputs
+    );
+
+    const result = await generateTextForBox(id, {
+      systemPrompt: data.systemPrompt,
+      userPrompt,
+      boxType: "codeedit",
+    });
+
+    // ---- 4. validate, diff, store ----
+    const parsed = parseChangeSet(result.content || "");
+    const meta: RepoMeta = {
+      repo: fileFetch.repo || ref.slug,
+      branch: fileFetch.branch || ref.branch || "",
+      files: fileFetch.files || known.length,
+      treeEntries: fileFetch.treeEntries || tree.length,
+      chars: fileFetch.chars || 0,
+      truncated: !!fileFetch.truncated,
+      fetchedAt: Date.now(),
+      error: "",
+      notes: fileFetch.notes || [],
+    };
+
+    if (parsed.error) {
+      get().updateBoxData(id, {
+        output: result.content,
+        status: "error",
+        error: parsed.error,
+        repoMeta: meta,
+        editMeta: emptyEditMeta({ source, read: known.map((f) => f.path), missing, error: parsed.error }),
+      });
+      return;
+    }
+
+    const { changes, dropped } = validateChangeSet(parsed, known);
+    const notes = [...parsed.notes, ...dropped.map((d) => `the app ${d}`)];
+
+    // The board document has to hold this, so a change set that would not fit is
+    // trimmed to its smallest files rather than silently corrupting the board.
+    const fitted = fitChangeSet(changes);
+    if (fitted.dropped.length > 0) notes.push(...fitted.dropped);
+
+    const summary = parsed.summary || `${fitted.changes.length} file(s) changed`;
+    const editMeta: EditMeta = {
+      source,
+      read: known.map((f) => f.path),
+      missing,
+      generatedAt: Date.now(),
+      error: "",
+      notes,
+    };
+
+    get().updateBoxData(id, {
+      // `output` is the Markdown change set, so a downstream box (the SDLC Review
+      // stage consumes a diff) receives it through the normal {{inputs}} path.
+      output: renderChangeSet(fitted.changes, summary),
+      status: "done",
+      error: undefined,
+      repoMeta: meta,
+      changeSet: fitted.changes,
+      editMeta,
+    });
+  } catch (err: any) {
+    const message = err?.message || "Could not prepare the change";
+    get().updateBoxData(id, {
+      status: "error",
+      error: message,
+      editMeta: emptyEditMeta({ error: message }),
+    });
+  }
+}
+
+/** Pulls the paths out of a digest's rendered file tree. */
+function treeFromDigest(digest: string): string[] {
+  const section = digest.split("## File tree")[1];
+  if (!section) return [];
+  const body = section.split(/\n## /)[0];
+  const out: string[] = [];
+  const stack: string[] = [];
+  for (const raw of body.split("\n")) {
+    if (!raw.trim() || raw.trim().startsWith("…")) continue;
+    const depth = Math.floor((raw.length - raw.trimStart().length) / 2);
+    const name = raw.trim();
+    stack.length = depth;
+    if (name.endsWith("/")) {
+      stack.push(name.slice(0, -1));
+      continue;
+    }
+    out.push([...stack, name].join("/"));
+  }
+  return out;
+}
+
+/**
+ * Keeps a change set inside the board document's size budget by dropping the
+ * largest files (reported, never silent) — the diff of the kept files is intact.
+ */
+function fitChangeSet(changes: FileChange[]): { changes: FileChange[]; dropped: string[] } {
+  if (changeSetChars(changes) <= MAX_CHANGE_SET_CHARS) return { changes, dropped: [] };
+  const sorted = [...changes].sort((a, b) => a.content.length + a.original.length - (b.content.length + b.original.length));
+  const kept: FileChange[] = [];
+  const dropped: string[] = [];
+  for (const change of sorted) {
+    const candidate = [...kept, change];
+    if (changeSetChars(candidate) > MAX_CHANGE_SET_CHARS) {
+      dropped.push(`${change.path} was changed by the model but does not fit in the board document — apply it manually from the model's reply`);
+      continue;
+    }
+    kept.push(change);
+  }
+  // Restore the order the model proposed, so the list reads in a sensible order.
+  const ordered = changes.filter((change) => kept.includes(change));
+  return { changes: ordered, dropped };
+}
+
+// ============================================================
+// SDLC pipeline — the gated stage engine.
+//
+// The stages, gate rules, parsers, cross-checks and audit export all live in
+// client/src/lib/sdlc.ts (pure, unit-tested). These functions are the thin
+// store-side orchestration: check the gate, call the model, append an immutable
+// version, run the app-side cross-checks, and invalidate dependent approvals.
+// ============================================================
+
+/** Audit-trail actor for events the APP itself records (not a person). */
+const APP_ACTOR = "AI Canva";
+
+/** Display name used for attributions (approvals, edits, rejections). */
+function actorName(): string {
+  const user = useAuthStore.getState().user;
+  return user?.displayName || user?.email || "Someone";
+}
+
+/**
+ * One text generation for a box: calls the model, records token usage (box
+ * display + Firestore ledger + session total) and throws on failure. Shared by
+ * the generic text branch and the SDLC stage branch so the accounting can never
+ * drift apart.
+ */
+async function generateTextForBox(
+  id: string,
+  opts: { systemPrompt: string; userPrompt: string; boxType: BoxType }
+) {
+  const result = await generate({
+    systemPrompt: opts.systemPrompt,
+    userPrompt: opts.userPrompt,
+  });
+
+  if (result.error) throw new Error(result.error);
+
+  const store = useBoardStore.getState();
+  if (result.usage) {
+    store.updateBoxData(id, { tokens: result.usage });
+    const user = useAuthStore.getState().user;
+    if (user) {
+      recordTokenUsage(
+        user.uid,
+        store.currentBoardId || "",
+        id,
+        opts.boxType,
+        result.usage,
+        result.model
+      );
+      useTokenStore.getState().addTokens(result.usage.totalTokens);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * The app-side cross-checks the pipeline requires (never left to the model to
+ * remember): unresolved spec items, plan tests missing for a spec decision, plan
+ * deviations reported by the implementation, and parsed review findings.
+ * Returned as a box patch plus the audit trail to store with it.
+ */
+function deriveStageCrossChecks(
+  stage: SdlcStage | undefined,
+  content: string,
+  specContent: string,
+  history: SdlcEvent[]
+): { patch: Partial<BoxData>; history: SdlcEvent[] } {
+  const patch: Partial<BoxData> = {};
+  let next = history;
+
+  if (stage === "spec") {
+    const openItems = parseOpenItems(content);
+    patch.sdlcOpenItems = openItems;
+    if (openItems.length > 0) {
+      next = appendEvent(next, {
+        actor: APP_ACTOR,
+        action: `${openItems.length} open question(s) are still unresolved — this stage stays gated`,
+        note: openItems.join(" · "),
+      });
+    }
+  }
+
+  if (stage === "plan") {
+    const { missing } = crossCheckSpecDecisions(specContent, content);
+    patch.sdlcGaps = missing;
+    if (missing.length > 0) {
+      next = appendEvent(next, {
+        actor: APP_ACTOR,
+        action: `${missing.length} spec decision(s) have no named test in the plan — this stage stays gated`,
+        note: missing.join(" · "),
+      });
+    }
+  }
+
+  if (stage === "implementation") {
+    const deviation = parseDeviation(content);
+    patch.sdlcDeviation = deviation;
+    if (deviation) {
+      next = appendEvent(next, {
+        actor: APP_ACTOR,
+        action: "the artifact reports a deviation from the approved plan — this stage stays gated",
+        note: "",
+      });
+    }
+  }
+
+  if (stage === "review") {
+    const findings = parseFindings(content);
+    patch.sdlcFindings = findings;
+    const blocking = findings.filter((f) => f.severity === "blocking").length;
+    if (findings.length === 0) {
+      next = appendEvent(next, {
+        actor: APP_ACTOR,
+        action: "no structured findings could be parsed — review the artifact manually before approving",
+        note: "",
+      });
+    } else if (blocking > 0) {
+      next = appendEvent(next, {
+        actor: APP_ACTOR,
+        action: `${blocking} blocking finding(s) — the merge stays blocked until they are dismissed`,
+        note: "",
+      });
+    }
+  }
+
+  return { patch, history: next };
+}
+
+/**
+ * Marks every downstream SDLC box that was approved as `stale`: its approval was
+ * tied to an upstream artifact version that has just changed, so it must be
+ * re-approved and nothing below it may run meanwhile.
+ */
+function invalidateSdlcDownstream(id: string, actor: string) {
+  const state = useBoardStore.getState();
+  const ids = downstreamIds(state.nodes, state.edges, id);
+  if (ids.length === 0) return;
+
+  const sourceTitle =
+    (state.nodes.find((n) => n.id === id)?.data?.title as string) || "an upstream stage";
+  const boxData = { ...state.boxData };
+  let changed = false;
+
+  for (const downId of ids) {
+    const data = boxData[downId];
+    if (!data || data.sdlcGate !== "approved") continue;
+    boxData[downId] = {
+      ...data,
+      sdlcGate: "stale",
+      sdlcHistory: appendEvent(data.sdlcHistory, {
+        actor,
+        action: `marked stale — ${sourceTitle} changed`,
+        note:
+          data.sdlcApprovedVersion !== undefined
+            ? `The approval applied to v${data.sdlcApprovedVersion} of this stage; the upstream artifact it was approved against has changed.`
+            : "",
+      }),
+    };
+    changed = true;
+  }
+
+  if (changed) {
+    useBoardStore.setState({ boxData });
+    scheduleSave();
+  }
+}
+
+/**
+ * Runs one stage of the gated SDLC pipeline.
+ *
+ * 1. The gate is checked BEFORE the model call — an unapproved upstream stage
+ *    means this stage never runs (the reason is surfaced on the box).
+ * 2. The artifact is appended as a new immutable version (never overwritten),
+ *    truncated only if it exceeds the artifact cap.
+ * 3. The app derives the stage's cross-checks itself.
+ * 4. Approvals that depended on the previous upstream artifact are invalidated.
+ *
+ * A failed run appends nothing and leaves the gate untouched: an error must
+ * never advance the pipeline.
+ */
+async function runSdlcStage(id: string) {
+  const get = () => useBoardStore.getState();
+
+  const node = get().nodes.find((n) => n.id === id);
+  const data = get().boxData[id];
+  if (!node || !data) return;
+  if (data.status === "running") return;
+
+  const boxType = (node.data.boxType || node.type) as BoxType;
+  const meta = sdlcStageMeta(boxType);
+  if (!meta) return;
+
+  const blocked = upstreamBlockReason(get().nodes, get().edges, get().boxData, id);
+  if (blocked) {
+    get().setBoxStatus(id, "error", blocked);
+    return;
+  }
+
+  const { namedInputs } = collectInputs(get().nodes, get().edges, get().boxData, id);
+  get().setBoxStatus(id, "running");
+
+  try {
+    const userPrompt = buildStagePrompt(
+      { prompt: data.prompt, skills: data.skills, feedback: data.sdlcFeedback },
+      namedInputs
+    );
+
+    const result = await generateTextForBox(id, {
+      systemPrompt: data.systemPrompt,
+      userPrompt,
+      boxType,
+    });
+
+    const actor = actorName();
+    const { content, truncated } = truncateArtifact(result.content || "");
+    const versions = appendVersion(data.sdlcVersions, {
+      content,
+      createdBy: actor,
+      source: "generated",
+      note: (data.sdlcFeedback || "").trim(),
+    });
+    const newVersion = versions[versions.length - 1].version;
+
+    let history = appendEvent(data.sdlcHistory, {
+      actor,
+      action: `generated ${meta.stage} v${newVersion}`,
+      note: truncated ? "Artifact truncated at 60000 characters." : "",
+    });
+
+    const derived = deriveStageCrossChecks(
+      meta.stage,
+      content,
+      upstreamStageContent(get().nodes, get().edges, get().boxData, id, "spec"),
+      history
+    );
+    history = derived.history;
+
+    get().updateBoxData(id, {
+      // `output` mirrors the latest artifact so downstream {{inputs}} and the
+      // per-box download always see the newest version.
+      output: content,
+      status: "done",
+      error: undefined,
+      sdlcVersions: versions,
+      sdlcGate: "pending",
+      sdlcApprovedVersion: undefined,
+      sdlcApprovedBy: undefined,
+      sdlcApprovedAt: undefined,
+      sdlcFeedback: "",
+      sdlcHistory: history,
+      ...derived.patch,
+    });
+
+    invalidateSdlcDownstream(id, actor);
+  } catch (err: any) {
+    get().setBoxStatus(id, "error", err.message || "Generation failed");
+  }
+}
 
 // ============================================================
 // Agent box — a multi-turn autonomous loop driven by the LLM.

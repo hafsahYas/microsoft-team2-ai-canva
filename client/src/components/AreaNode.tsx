@@ -34,7 +34,7 @@ function AreaNodeInner({ id, data, selected }: NodeProps) {
                 onClick={() => setAreaColor(id, c.fill, c.border)}
                 title={`Area color — ${c.name}`}
                 className={
-                  "w-5 h-5 rounded-md border transition hover:scale-110 " +
+                  "area-color-dot w-5 h-5 rounded-md border transition hover:scale-110 " +
                   (fill === c.fill ? "border-slate-600 scale-110" : "border-slate-300")
                 }
                 style={{ backgroundColor: c.fill, borderColor: fill === c.fill ? c.border : undefined }}
@@ -45,7 +45,7 @@ function AreaNodeInner({ id, data, selected }: NodeProps) {
           <button
             onClick={() => deleteBox(id)}
             title="Delete area"
-            className="nodrag absolute -top-3 -right-3 w-6 h-6 rounded-full bg-white text-slate-500 hover:text-red-500 text-sm shadow-md border border-slate-200 flex items-center justify-center"
+            className="box-delete nodrag absolute -top-4 -right-4 w-6 h-6 rounded-full bg-white text-slate-500 hover:text-red-500 text-sm shadow-md border border-slate-200 flex items-center justify-center"
           >
             ✕
           </button>

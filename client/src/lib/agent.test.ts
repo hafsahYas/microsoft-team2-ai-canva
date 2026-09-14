@@ -246,4 +246,23 @@ describe("clip + constants sanity", () => {
       expect(BOX_TYPES[t as BoxType]).toBeDefined();
     }
   });
+
+  it("never lets the agent create an SDLC stage box", () => {
+    // The pipeline is human-gated by design: an agent that could create (and
+    // then approve) its own stages would defeat every gate.
+    for (const t of ["sdlc-intent", "sdlc-spec", "sdlc-plan", "sdlc-implement", "sdlc-review", "sdlc-merge"]) {
+      expect(isAgentCreatableType(t)).toBe(false);
+      expect(BOX_TYPES[t as BoxType]).toBeDefined();
+    }
+  });
+
+  it("never lets the agent create a collaboration tool", () => {
+    // Note/label/timer/checklist are the TEAM's tools, not the agent's: they
+    // have no AI, produce no output, and a checklist an agent "completes" on
+    // its own would be a shared list nobody agreed to.
+    for (const t of ["note", "label", "timer", "checklist", "chatbot"]) {
+      expect(isAgentCreatableType(t)).toBe(false);
+      expect(BOX_TYPES[t as BoxType]).toBeDefined();
+    }
+  });
 });

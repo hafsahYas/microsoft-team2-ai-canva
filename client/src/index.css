@@ -11,6 +11,31 @@ body,
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Full-viewport app behavior (iPads / kiosk):
+   - no rubber-band overscroll;
+   - no gray tap flash on taps;
+   - dynamic viewport height (dvh) so Safari's collapsing URL bar doesn't
+     leave dead space or clip the app chrome. */
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+/* Rapid taps (▶ Run, slide nav) must never register as double-tap zooms. */
+button,
+a,
+select,
+[role="button"] {
+  touch-action: manipulation;
+}
+
 /* Box node styling — quiet enterprise card:
    1px colored border (set inline per box type), layered soft shadow,
    and an indigo selection ring instead of a heavier shadow. */
@@ -43,6 +68,12 @@ body,
   -webkit-backdrop-filter: blur(8px);
   border-bottom: 1px solid #e2e8f0;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  /* Notched-device safe areas (landscape iPad in fullscreen kiosk mode). */
+  height: auto;
+  min-height: calc(56px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
 }
 
 /* Brand mark — the single gradient in the chrome. */
@@ -197,8 +228,94 @@ body,
 .note-node:hover .note-delete,
 .note-node.selected .note-delete,
 .label-row:hover .label-delete,
-.label-node.selected .label-delete {
+.label-node.selected .label-delete,
+.chatbot-node:hover .chatbot-delete,
+.chatbot-node.selected .chatbot-delete {
   opacity: 1;
+}
+
+/* ===== Chatbot companion: a stick figure standing on the board ===== */
+.chatbot-node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.chatbot-node.selected {
+  outline: 2px solid #e11d48;
+  outline-offset: 4px;
+  border-radius: 10px;
+}
+.chatbot-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 5;
+  @apply w-5 h-5 flex items-center justify-center rounded-full text-xs bg-white/80 text-slate-500 hover:text-red-500 shadow;
+}
+.chatbot-name {
+  @apply px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Speech bubble above the figure's head */
+.chatbot-bubble {
+  @apply absolute top-0 left-1/2 -translate-x-1/2 bg-white rounded-xl px-2.5 py-1.5 text-[11px] leading-snug text-slate-600;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  max-width: 150px;
+  max-height: 64px;
+  overflow: hidden;
+  z-index: 3;
+  word-break: break-word;
+}
+.chatbot-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: #ffffff;
+  border-bottom: 0;
+}
+/* Gentle breathing idle / faster thinking bob (origin: the feet). */
+.chatbot-fig-idle {
+  transform-origin: 32px 88px;
+  animation: chatbot-bob 3.4s ease-in-out infinite;
+}
+.chatbot-fig-busy {
+  transform-origin: 32px 88px;
+  animation: chatbot-bob 1.1s ease-in-out infinite;
+}
+@keyframes chatbot-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+/* Thinking dots (bubble + transcript) */
+.chatbot-dots {
+  @apply inline-flex items-center gap-1;
+}
+.chatbot-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: #e11d48;
+  animation: chatbot-dot 1s ease-in-out infinite;
+}
+.chatbot-dots span:nth-child(2) { animation-delay: 0.15s; }
+.chatbot-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chatbot-dot {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
 }
 
 /* NodeResizer handle styling */
@@ -346,8 +463,128 @@ html {
 @keyframes arrowFlow {
   0%, 100% { opacity: 0.35; transform: translateX(0); }
   50% { opacity: 1; transform: translateX(3px); }
-}\n
+}
+
 /* Area drawing tool: crosshair over the canvas while active */
 .area-tool-active .react-flow__pane {
   cursor: crosshair;
+}
+
+/* ===== Touch / large-tablet support =====
+   iPads (and other coarse-pointer devices) have no hover, much larger
+   fingers, and native gesture handling that fights the canvas. Everything
+   below is scoped to @media (pointer: coarse) so desktop is unchanged. */
+@media (pointer: coarse) {
+  /* No accidental text-selection callouts on long-press chrome. Reading and
+     editing surfaces stay selectable. */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea,
+  .markdown-output,
+  .cm-editor,
+  .cm-content {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Connection handles: 10px dots are ungrabbable with a finger. Growth is
+     centered (handles translate ±50%), so edges still anchor correctly. */
+  .react-flow__handle {
+    width: 18px !important;
+    height: 18px !important;
+  }
+  /* Resize corner handles. */
+  .react-flow__resize-control.handle {
+    width: 20px !important;
+    height: 20px !important;
+  }
+  /* Zoom controls. */
+  .react-flow__controls-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* Box bodies scroll vertically with a finger instead of dragging the node
+     (horizontal drags still move the node). Pairs with the `nodrag` on the
+     body wrapper in BoxNode.tsx. */
+  .box-body {
+    touch-action: pan-y;
+  }
+
+  /* Hover-gated affordances must be reachable without hover. */
+  .touch-visible {
+    opacity: 1 !important;
+  }
+  .note-delete,
+  .label-delete,
+  .chatbot-delete {
+    opacity: 1;
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+  }
+  .box-delete {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  /* Minimum comfortable touch targets. */
+  .box-footer button {
+    min-height: 42px;
+  }
+  .slide-nav {
+    width: 38px;
+    height: 38px;
+  }
+  .timer-controls button {
+    min-height: 40px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  /* Checklist box: a 16px tick box and 20px row icons are ungrabbable with a
+     finger (the row actions are hover-revealed on desktop, always visible on
+     coarse pointers via .touch-visible). */
+  .checklist-check {
+    width: 22px;
+    height: 22px;
+  }
+  .checklist-row-actions button {
+    width: 30px;
+    height: 30px;
+    font-size: 12px;
+  }
+  .checklist-assign {
+    min-height: 30px;
+    font-size: 12px;
+  }
+  .checklist-add-input,
+  .checklist-add-btn {
+    min-height: 38px;
+  }
+  .area-color-dot,
+  .label-color-dot {
+    width: 28px;
+    height: 28px;
+  }
+  .palette-row {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .sidebar-tab {
+    width: 44px;
+  }
+  /* The help card shares its corner with the zoom controls — yield to them. */
+  .help-anchor {
+    left: 72px;
+  }
+  .app-bar button {
+    height: 40px;
+  }
+  .app-bar input {
+    height: 40px;
+  }
 }
