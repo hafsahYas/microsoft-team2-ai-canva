@@ -709,7 +709,7 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 130,
     defaultHeight: 180,
   },
-    irPlanner: {
+  irPlanner: {
     label: "IR Planner",
     icon: "🚨",
     color: "#ef4444",
