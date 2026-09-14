@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "chatbot" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "codeedit" | "prd" | "devplan" | "codemap" | "ui" | "stitch" | "note" | "label" | "timer" | "checklist" | "custom" | "sdlc-intent" | "sdlc-spec" | "sdlc-plan" | "sdlc-implement" | "sdlc-review" | "sdlc-merge";
+export type BoxType = "agent" | "chatbot" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "codeedit" | "prd" | "devplan" | "codemap" | "ui" | "stitch" | "note" | "label" | "timer" | "checklist" | "custom" | "sdlc-intent" | "sdlc-spec" | "sdlc-plan" | "sdlc-implement" | "sdlc-review" | "sdlc-merge" | "securityAdvisor" | "irPlanner" | "threatModeler" | "riskScorer" | "assetMapper";
 
 /**
  * One task in a Checklist box — the team's shared to-do list. Every field is
@@ -708,6 +708,88 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultSystemPrompt: CHATBOT_BASE_PROMPT,
     defaultWidth: 130,
     defaultHeight: 180,
+  },
+    irPlanner: {
+    label: "IR Planner",
+    icon: "🚨",
+    color: "#ef4444",
+    description: "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Create a structured incident response plan based on the incident information below...\n\nIncident information:\n{{inputs}}",
+    defaultSystemPrompt: "You are an incident response planning assistant...",
+    defaultWidth: 400,
+    defaultHeight: 520,
+  },
+  securityAdvisor: {
+    label: "Security Advisor",
+    icon: "🛡️",
+    color: "#3C6E71",
+    description: "On-demand security and compliance guidance, available at any stage of the pipeline.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Review the connected content below and identify what stage of the pipeline it represents...\n\nContent:\n{{inputs}}",
+    defaultSystemPrompt: "You are a Security Advisor available at any stage of an AI-assisted security/compliance pipeline.",
+    defaultWidth: 320,
+    defaultHeight: 280,
+  },
+  riskScorer: {
+    label: "Risk Scorer",
+    icon: "🎲",
+    color: "#dc2626",
+    description: "Scores identified threats by likelihood × impact and produces a prioritized risk register.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Given the threats or incident scenarios below, identify each distinct threat...\n\nThreats:\n{{inputs}}",
+    defaultSystemPrompt: "You are a security risk analyst using a likelihood x impact scoring model.",
+    defaultWidth: 360,
+    defaultHeight: 360,
+  },
+  threatModeler: {
+    label: "Threat Modeler",
+    icon: "🧠",
+    color: "#8B5CF6",
+    description: "Identifies threats using STRIDE.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Analyze each asset using STRIDE...\n\nAsset Inventory:\n{{inputs}}",
+    defaultSystemPrompt: "You are a threat modeling expert specializing in STRIDE methodology.",
+    defaultWidth: 360,
+    defaultHeight: 380,
+  },
+  assetMapper: {
+    label: "Asset Mapper",
+    icon: "🗂️",
+    color: "#0f766e",
+    description:
+      "Identify, classify, and structure organisational assets for downstream security analysis.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+      "Analyse the following information and create a structured asset inventory.\n\n" +
+      "Identify relevant assets such as data, applications, systems, cloud services, infrastructure, people, and physical resources where applicable.\n\n" +
+      "For each asset, provide:\n" +
+      "- Asset Name\n" +
+      "- Category\n" +
+      "- Description\n" +
+      "- Owner\n" +
+      "- Classification (Public, Internal, Confidential, or Restricted)\n" +
+      "- Location\n" +
+      "- Dependencies\n" +
+      "- Relevant compliance or regulatory tags\n" +
+      "- Missing information or review flags\n\n" +
+      "Do not invent missing information. If something cannot be determined from the input, mark it as Unknown / Requires Review.\n\n" +
+      "Briefly explain classifications where useful. Focus only on identifying, organising, and classifying assets. Do not perform threat modelling or final risk scoring, as these are handled by downstream security boxes.\n\n" +
+      "Input:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a cybersecurity asset mapping assistant. Convert user and upstream system information into a clear, structured asset inventory. Be accurate, avoid assumptions, clearly flag missing information, and preserve useful relationships and dependencies between assets.",
+    defaultWidth: 360,
+    defaultHeight: 380,
   },
   research: {
     label: "Research",

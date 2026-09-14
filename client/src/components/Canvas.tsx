@@ -51,6 +51,11 @@ const nodeTypes = {
   "sdlc-merge": BoxNode,
   area: AreaNode,
   custom: BoxNode,
+  securityAdvisor: BoxNode,
+  riskScorer: BoxNode,
+  threatModeler: BoxNode,
+  irPlanner: BoxNode,
+  assetMapper: BoxNode,
 };
 
 export default function Canvas() {
@@ -315,6 +320,11 @@ export default function Canvas() {
             "sdlc-implement": "#15803d",
             "sdlc-review": "#b45309",
             "sdlc-merge": "#be123c",
+            securityAdvisor: "#3C6E71",
+            assetMapper: "#0f766e",
+            riskScorer: "#f87171",
+            threatModeler: "#8B5CF6",
+            irPlanner: "#ef4444",
           };
           if (node.type === "area") {
             // Areas are near-white on the minimap — use their border shade.
