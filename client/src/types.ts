@@ -1,4 +1,4 @@
-export type BoxType = "agent" | "chatbot" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "codeedit" | "prd" | "devplan" | "codemap" | "ui" | "stitch" | "note" | "label" | "timer" | "checklist" | "custom" | "sdlc-intent" | "sdlc-spec" | "sdlc-plan" | "sdlc-implement" | "sdlc-review" | "sdlc-merge" | "securityAdvisor" | "irPlanner" | "threatModeler" | "riskScorer" | "assetMapper";
+export type BoxType = "agent" | "chatbot" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "codeedit" | "prd" | "devplan" | "codemap" | "ui" | "stitch" | "note" | "label" | "timer" | "checklist" | "custom" | "sdlc-intent" | "sdlc-spec" | "sdlc-plan" | "sdlc-implement" | "sdlc-review" | "sdlc-merge";
 
 /**
  * One task in a Checklist box — the team's shared to-do list. Every field is
@@ -39,13 +39,21 @@ export interface Slide {
  */
 export interface BoxDocument {
   id: string;
+  /** Original filename (kept for labeling in prompts and the file list). */
   name: string;
+  /** Raw file size in bytes. */
   size: number;
+  /** Lowercase extension without the dot ("pdf", "txt", …). */
   ext: string;
+  /** Storage download URL — "" when the file was not uploaded (local mode). */
   url: string;
+  /** Extracted text — "" when extraction failed (see error). */
   text: string;
+  /** Characters of extracted text actually kept (after any truncation). */
   chars: number;
+  /** True when the extracted text was capped (see lib/documents.ts limits). */
   truncated: boolean;
+  /** "" when extraction succeeded, otherwise a short failure reason. */
   error: string;
 }
 
@@ -58,6 +66,8 @@ export interface PresenceUser {
   color: string;
   cursorX: number;
   cursorY: number;
+  /** False when the user is online (heartbeat) but has never moved their
+   *  cursor — Cursors skips those so no stray cursor renders at (0, 0). */
   hasCursor?: boolean;
 }
 
@@ -67,16 +77,30 @@ export interface NamedInput {
   output: string;
 }
 
-/** One recorded step of an Agent box run. */
+/**
+ * One recorded step of an Agent box run (a plan note, a board action, or a
+ * completion/error marker). Persisted in the box's `agentSteps` so the
+ * transcript survives reloads and is visible to every board collaborator.
+ */
 export interface AgentStep {
   id: string;
+  /** Kind of step — drives the icon and color in the box's timeline. */
   type: "plan" | "add_box" | "connect" | "run" | "finish" | "stopped" | "error";
+  /** Human-readable one-liner shown in the log. */
   label: string;
+  /** Optional extra detail (model reasoning, parse error preview). */
   detail?: string;
+  /** Board box id affected by this step (add_box / run). */
   boxId?: string;
+  /** Epoch ms when the step happened. */
   at: number;
 }
 
+/**
+ * The Agent box's controller system prompt. Defines the environment and the
+ * strict one-action-per-turn JSON protocol the model must follow
+ * (see client/src/lib/agent.ts for the parser and boardStore for the loop).
+ */
 export const AGENT_CONTROLLER_SYSTEM_PROMPT = `You are an autonomous AI agent working inside a collaborative whiteboard app ("AI Canva"). The whiteboard is your workspace: you complete tasks by creating BOXES on the board, wiring them together, and running them. Each box is an AI worker with a type and a prompt you write for it.
 
 ## Box types you can create
@@ -537,8 +561,10 @@ export interface BoxData {
   error?: string;
   imageData?: string;
   outputImage?: string;
+  /** For Documents boxes: the uploaded files + their extracted text. */
   documents?: BoxDocument[];
   slides?: Slide[];
+  /** For Code boxes: the generated React component code (JSX). */
   code?: string;
   /** Code boxes: the change request to apply to the current code (AI edit). */
   changePrompt?: string;
@@ -548,6 +574,7 @@ export interface BoxData {
   codeVersion?: number;
   /** Token usage from the most recent LLM call for this box (text AI boxes). */
   tokens?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  /** For Agent boxes: the step log of the most recent (or current) run. */
   agentSteps?: AgentStep[];
   /** For Chatbot boxes: the ongoing conversation (shared per board). */
   chatMessages?: ChatMessage[];
@@ -556,11 +583,16 @@ export interface BoxData {
   /** For Note boxes: who created the note (set once at creation). */
   authorEmail?: string;
   authorName?: string;
+  /** For Label boxes: the pill's background color (one of LABEL_COLORS). */
   labelColor?: string;
+  /** For Timer boxes — see client/src/lib/timer.ts for the state machine. */
   timerDurationMs?: number;
   timerStatus?: "idle" | "running" | "stopped" | "paused";
+  /** Epoch ms when the current run started (basis for every viewer's countdown). */
   timerStartedAt?: number;
+  /** Frozen remaining time in ms (set on pause/stop so all viewers agree). */
   timerRemainingMs?: number;
+  /** Email of the user who last started the timer (shown as attribution). */
   timerStartedBy?: string;
   /**
    * For Checklist boxes: the shared team to-do items (see
@@ -629,6 +661,7 @@ export interface BoxTypeMeta {
   description: string;
   hasAI: boolean;
   category: BoxCategory;
+  /** Role tags used to filter the palette per persona (labels, not permissions). */
   roles: BoxRole[];
   defaultPrompt: string;
   defaultSystemPrompt: string;
@@ -637,23 +670,31 @@ export interface BoxTypeMeta {
 }
 
 export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
-  idea: { label: "Idea", icon: "💡", color: "#fbbf24", description: "Write down a basic idea. No AI — just your text.", hasAI: false, category: "input", roles: ["everyone"], defaultPrompt: "", defaultSystemPrompt: "", defaultWidth: 320, defaultHeight: 200 },
-  agent: { label: "Agent", icon: "🤖", color: "#4f46e5", description: "Give the agent a task — it plans, creates boxes on the board, wires and runs them, then reports back.", hasAI: true, category: "worker", roles: ["everyone"], defaultPrompt: "", defaultSystemPrompt: AGENT_CONTROLLER_SYSTEM_PROMPT, defaultWidth: 400, defaultHeight: 480 },
-  research: { label: "Research", icon: "🔍", color: "#60a5fa", description: "Research a topic using AI.", hasAI: true, category: "worker", roles: ["everyone"], defaultPrompt: "Research the following topic thoroughly.\n\nTopic:\n{{input_1}}", defaultSystemPrompt: "You are a thorough research assistant.", defaultWidth: 320, defaultHeight: 320 },
-  summarize: { label: "Summarize", icon: "📋", color: "#a78bfa", description: "Combine and summarize multiple inputs.", hasAI: true, category: "worker", roles: ["everyone"], defaultPrompt: "Synthesize the following inputs.\n\n{{inputs}}", defaultSystemPrompt: "You are a synthesis expert.", defaultWidth: 320, defaultHeight: 320 },
-
-  irPlanner: {
-    label: "IR Planner",
-    icon: "🚨",
-    color: "#ef4444",
-    description: "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
+  idea: {
+    label: "Idea",
+    icon: "💡",
+    color: "#fbbf24",
+    description: "Write down a basic idea. No AI — just your text.",
+    hasAI: false,
+    category: "input",
+    roles: ["everyone"],
+    defaultPrompt: "",
+    defaultSystemPrompt: "",
+    defaultWidth: 320,
+    defaultHeight: 200,
+  },
+  agent: {
+    label: "Agent",
+    icon: "🤖",
+    color: "#4f46e5",
+    description: "Give the agent a task — it plans, creates boxes on the board, wires and runs them, then reports back.",
     hasAI: true,
     category: "worker",
     roles: ["everyone"],
-    defaultPrompt: "Create a structured incident response plan based on the incident information below...\n\nIncident information:\n{{inputs}}",
-    defaultSystemPrompt: "You are an incident response planning assistant...",
+    defaultPrompt: "",
+    defaultSystemPrompt: AGENT_CONTROLLER_SYSTEM_PROMPT,
     defaultWidth: 400,
-    defaultHeight: 520,
+    defaultHeight: 480,
   },
   chatbot: {
     label: "Chatbot",
@@ -668,80 +709,77 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 130,
     defaultHeight: 180,
   },
-  securityAdvisor: {
-    label: "Security Advisor",
-    icon: "🛡️",
-    color: "#3C6E71",
-    description: "On-demand security and compliance guidance, available at any stage of the pipeline.",
-    hasAI: true,
-    category: "worker",
-    roles: ["everyone"],
-    defaultPrompt: "Review the connected content below and identify what stage of the pipeline it represents...\n\nContent:\n{{inputs}}",
-    defaultSystemPrompt: "You are a Security Advisor available at any stage of an AI-assisted security/compliance pipeline.",
-    defaultWidth: 320,
-    defaultHeight: 280,
-  },
-  riskScorer: {
-    label: "Risk Scorer",
-    icon: "🎲",
-    color: "#dc2626",
-    description: "Scores identified threats by likelihood × impact and produces a prioritized risk register.",
-    hasAI: true,
-    category: "worker",
-    roles: ["everyone"],
-    defaultPrompt: "Given the threats or incident scenarios below, identify each distinct threat...\n\nThreats:\n{{inputs}}",
-    defaultSystemPrompt: "You are a security risk analyst using a likelihood x impact scoring model.",
-    defaultWidth: 360,
-    defaultHeight: 360,
-  },
-  threatModeler: {
-    label: "Threat Modeler",
-    icon: "🧠",
-    color: "#8B5CF6",
-    description: "Identifies threats using STRIDE.",
-    hasAI: true,
-    category: "worker",
-    roles: ["everyone"],
-    defaultPrompt: "Analyze each asset using STRIDE...\n\nAsset Inventory:\n{{inputs}}",
-    defaultSystemPrompt: "You are a threat modeling expert specializing in STRIDE methodology.",
-    defaultWidth: 360,
-    defaultHeight: 380,
-  },
-  assetMapper: {
-    label: "Asset Mapper",
-    icon: "🗂️",
-    color: "#0f766e",
-    description:
-      "Identify, classify, and structure organisational assets for downstream security analysis.",
+  research: {
+    label: "Research",
+    icon: "🔍",
+    color: "#60a5fa",
+    description: "Research a topic using AI. Takes input from connected boxes.",
     hasAI: true,
     category: "worker",
     roles: ["everyone"],
     defaultPrompt:
-      "Analyse the following information and create a structured asset inventory.\n\n" +
-      "Identify relevant assets such as data, applications, systems, cloud services, infrastructure, people, and physical resources where applicable.\n\n" +
-      "For each asset, provide:\n" +
-      "- Asset Name\n" +
-      "- Category\n" +
-      "- Description\n" +
-      "- Owner\n" +
-      "- Classification (Public, Internal, Confidential, or Restricted)\n" +
-      "- Location\n" +
-      "- Dependencies\n" +
-      "- Relevant compliance or regulatory tags\n" +
-      "- Missing information or review flags\n\n" +
-      "Do not invent missing information. If something cannot be determined from the input, mark it as Unknown / Requires Review.\n\n" +
-      "Briefly explain classifications where useful. Focus only on identifying, organising, and classifying assets. Do not perform threat modelling or final risk scoring, as these are handled by downstream security boxes.\n\n" +
-      "Input:\n{{inputs}}",
+      "Research the following topic thoroughly. Provide key findings, relevant context, market landscape, and potential risks. Format as Markdown with clear headings.\n\nTopic:\n{{input_1}}",
     defaultSystemPrompt:
-      "You are a cybersecurity asset mapping assistant. Convert user and upstream system information into a clear, structured asset inventory. Be accurate, avoid assumptions, clearly flag missing information, and preserve useful relationships and dependencies between assets.",
-    defaultWidth: 360,
+      "You are a thorough research assistant. Provide well-structured, factual findings in Markdown format. Be concise but comprehensive.",
+    defaultWidth: 320,
+    defaultHeight: 320,
+  },
+  summarize: {
+    label: "Summarize",
+    icon: "📋",
+    color: "#a78bfa",
+    description: "Combine and summarize multiple inputs into a concise overview.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt:
+      "Synthesize the following inputs into a clear, concise summary. Identify common themes, key points, and any contradictions. Format as Markdown.\n\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a synthesis expert. Combine multiple inputs into a clear, concise summary in Markdown format. Highlight key insights.",
+    defaultWidth: 320,
+    defaultHeight: 320,
+  },
+  image: {
+    label: "Image",
+    icon: "🖼️",
+    color: "#34d399",
+    description: "Upload an image. The image becomes input for downstream boxes.",
+    hasAI: false,
+    category: "input",
+    roles: ["designer"],
+    defaultPrompt: "",
+    defaultSystemPrompt: "",
+    defaultWidth: 320,
+    defaultHeight: 320,
+  },
+  documents: {
+    label: "Documents",
+    icon: "📎",
+    color: "#64748b",
+    description:
+      "Upload PDF, Word, or text files. Their extracted text becomes input for downstream boxes via {{inputs}}.",
+    hasAI: false,
+    category: "input",
+    roles: ["everyone"],
+    defaultPrompt: "",
+    defaultSystemPrompt: "",
+    defaultWidth: 340,
     defaultHeight: 380,
   },
-
-  image: { label: "Image", icon: "🖼️", color: "#34d399", description: "Upload an image.", hasAI: false, category: "input", roles: ["designer"], defaultPrompt: "", defaultSystemPrompt: "", defaultWidth: 320, defaultHeight: 320 },
-  documents: { label: "Documents", icon: "📎", color: "#64748b", description: "Upload files.", hasAI: false, category: "input", roles: ["everyone"], defaultPrompt: "", defaultSystemPrompt: "", defaultWidth: 340, defaultHeight: 380 },
-  cartoon: { label: "Cartoon Profile", icon: "🎨", color: "#f472b6", description: "Generate cartoon profile pictures.", hasAI: true, category: "worker", roles: ["designer"], defaultPrompt: "Cartoon style 3D profile picture of {{input_1}}", defaultSystemPrompt: "", defaultWidth: 320, defaultHeight: 380 },
-
+  cartoon: {
+    label: "Cartoon Profile",
+    icon: "🎨",
+    color: "#f472b6",
+    description: "Generate cartoon profile pictures. Connect an Image box for image-to-image, or an Idea box for text-to-image.",
+    hasAI: true,
+    category: "worker",
+    roles: ["designer"],
+    defaultPrompt:
+      "Cartoon style 3D profile picture of {{input_1}}, colorful, fun, stylized cartoon character, clean simple background, professional avatar",
+    defaultSystemPrompt: "",
+    defaultWidth: 320,
+    defaultHeight: 380,
+  },
   slides: {
     label: "Slides",
     icon: "📊",
@@ -750,8 +788,10 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["product", "designer"],
-    defaultPrompt: "Create a 10-slide startup pitch deck from the following research. Each slide should have a clear title and 3-5 concise bullet points.\n\nSlide structure:\n1. Problem — What pain point exists?\n2. Solution — How does your product solve it?\n3. Market Size — How big is the opportunity?\n4. Product — Key features and demo highlights\n5. Business Model — How do you make money?\n6. Traction — Current progress and metrics\n7. Competition — Competitive landscape and advantage\n8. Team — Who is building this?\n9. Financials — Key projections\n10. Ask — What do you need from investors?\n\nOutput as JSON array: [{\"title\": \"...\", \"bullets\": [\"...\", \"...\"], \"notes\": \"...\"}]\n\nResearch:\n{{inputs}}",
-    defaultSystemPrompt: "You are a pitch deck creator. You create concise, impactful slides from research data. Output ONLY a valid JSON array of slide objects. Each slide has a \"title\" (string), \"bullets\" (array of strings, 3-5 items), and optional \"notes\" (string with speaker notes). Do not include any text before or after the JSON array.",
+    defaultPrompt:
+      "Create a 10-slide startup pitch deck from the following research. Each slide should have a clear title and 3-5 concise bullet points.\n\nSlide structure:\n1. Problem — What pain point exists?\n2. Solution — How does your product solve it?\n3. Market Size — How big is the opportunity?\n4. Product — Key features and demo highlights\n5. Business Model — How do you make money?\n6. Traction — Current progress and metrics\n7. Competition — Competitive landscape and advantage\n8. Team — Who is building this?\n9. Financials — Key projections\n10. Ask — What do you need from investors?\n\nOutput as JSON array: [{\"title\": \"...\", \"bullets\": [\"...\", \"...\"], \"notes\": \"...\"}]\n\nResearch:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a pitch deck creator. You create concise, impactful slides from research data. Output ONLY a valid JSON array of slide objects. Each slide has a \"title\" (string), \"bullets\" (array of strings, 3-5 items), and optional \"notes\" (string with speaker notes). Do not include any text before or after the JSON array.",
     defaultWidth: 380,
     defaultHeight: 380,
   },
@@ -763,8 +803,10 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["developer"],
-    defaultPrompt: "Create a React prototype for the following requirements. Use React hooks (React.useState, React.useEffect, etc.) and inline styles for all styling. Keep it SIMPLE: use small mock data (3-5 items max), focus on the core UI and interactivity. Do NOT generate extensive data arrays or constant definitions. The output must be a complete working component with the App function and ReactDOM.createRoot render call.\n\nRequirements:\n{{inputs}}",
-    defaultSystemPrompt: "You are a React developer. You write clean, working React components. Output ONLY JavaScript/JSX code. No HTML wrapper, no script tags, no markdown code blocks, no explanation. Use the React.* API (React.useState, React.useEffect) — do not use import statements. Define a component called App. End with ReactDOM.createRoot(document.getElementById('root')).render(<App />). Use inline styles for all styling. CRITICAL: Keep mock data SMALL (3-5 items maximum). Do NOT generate extensive data arrays, long constant lists, or large data definitions. Focus on the UI component, interactivity, and visual design. The output MUST include the full App component and the ReactDOM.createRoot render call.",
+    defaultPrompt:
+      "Create a React prototype for the following requirements. Use React hooks (React.useState, React.useEffect, etc.) and inline styles for all styling. Keep it SIMPLE: use small mock data (3-5 items max), focus on the core UI and interactivity. Do NOT generate extensive data arrays or constant definitions. The output must be a complete working component with the App function and ReactDOM.createRoot render call.\n\nRequirements:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a React developer. You write clean, working React components. Output ONLY JavaScript/JSX code. No HTML wrapper, no script tags, no markdown code blocks, no explanation. Use the React.* API (React.useState, React.useEffect) — do not use import statements. Define a component called App. End with ReactDOM.createRoot(document.getElementById('root')).render(<App />). Use inline styles for all styling. CRITICAL: Keep mock data SMALL (3-5 items maximum). Do NOT generate extensive data arrays, long constant lists, or large data definitions. Focus on the UI component, interactivity, and visual design. The output MUST include the full App component and the ReactDOM.createRoot render call.",
     defaultWidth: 440,
     defaultHeight: 420,
   },
@@ -789,8 +831,10 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["product"],
-    defaultPrompt: "Create a Product Requirements Document (PRD) based on the following research and ideas. Structure it with these sections:\n\n## Product Overview\nBrief description of what we are building and why.\n\n## Problem Statement\nWhat pain point does this solve? Who has this problem?\n\n## Target Users\nWho are the primary users? What are their needs?\n\n## Core Features\nList the key features with priority (P0 = must have, P1 = should have, P2 = nice to have).\n\n## User Stories\nWrite 3-5 user stories in the format: As a [user], I want to [action] so that [benefit].\n\n## UI/UX Guidelines\nKey screens, layout considerations, and design principles.\n\n## Technical Requirements\nTechnology stack recommendations, key constraints, and dependencies.\n\n## Success Metrics\nHow will we measure if this product is successful?\n\nResearch & Ideas:\n{{inputs}}",
-    defaultSystemPrompt: "You are a product manager. You create clear, structured Product Requirements Documents (PRDs) from research and ideas. Format as Markdown with clear headings, bullet points, and numbered lists. Be specific and actionable — this PRD will be used by developers to build a prototype.",
+    defaultPrompt:
+      "Create a Product Requirements Document (PRD) based on the following research and ideas. Structure it with these sections:\n\n## Product Overview\nBrief description of what we are building and why.\n\n## Problem Statement\nWhat pain point does this solve? Who has this problem?\n\n## Target Users\nWho are the primary users? What are their needs?\n\n## Core Features\nList the key features with priority (P0 = must have, P1 = should have, P2 = nice to have).\n\n## User Stories\nWrite 3-5 user stories in the format: As a [user], I want to [action] so that [benefit].\n\n## UI/UX Guidelines\nKey screens, layout considerations, and design principles.\n\n## Technical Requirements\nTechnology stack recommendations, key constraints, and dependencies.\n\n## Success Metrics\nHow will we measure if this product is successful?\n\nResearch & Ideas:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a product manager. You create clear, structured Product Requirements Documents (PRDs) from research and ideas. Format as Markdown with clear headings, bullet points, and numbered lists. Be specific and actionable — this PRD will be used by developers to build a prototype.",
     defaultWidth: 360,
     defaultHeight: 380,
   },
@@ -802,8 +846,10 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["developer"],
-    defaultPrompt: "Create a simple development plan for a React prototype based on this PRD. Keep it short and practical.\n\nList:\n1. Components to build (names + 1-line purpose)\n2. State variables (names + types)\n3. Key functions (names + what they do)\n4. Build order (3-5 steps)\n\nThis is for a simple prototype. Use small mock data. Do NOT over-engineer.\n\nPRD:\n{{inputs}}",
-    defaultSystemPrompt: "You are a pragmatic developer. Create SHORT, simple development plans for React prototypes. Use React hooks and inline styles. Keep everything minimal — this is a prototype, not production. Be concise.",
+    defaultPrompt:
+      "Create a simple development plan for a React prototype based on this PRD. Keep it short and practical.\n\nList:\n1. Components to build (names + 1-line purpose)\n2. State variables (names + types)\n3. Key functions (names + what they do)\n4. Build order (3-5 steps)\n\nThis is for a simple prototype. Use small mock data. Do NOT over-engineer.\n\nPRD:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are a pragmatic developer. Create SHORT, simple development plans for React prototypes. Use React hooks and inline styles. Keep everything minimal — this is a prototype, not production. Be concise.",
     defaultWidth: 360,
     defaultHeight: 380,
   },
@@ -828,8 +874,10 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["designer"],
-    defaultPrompt: "Design a beautiful React UI for the following. Use Tailwind CSS classes for ALL styling (no inline styles). Make it look like a real polished product.\n\nDesign requirements:\n- Modern, clean design with attention to detail\n- Good spacing, typography, and color harmony\n- Use gradients, shadows, rounded corners, and smooth transitions\n- Hover states on interactive elements\n- Include at least one gradient or glassmorphism effect\n- Make it responsive\n- Use small mock data (3-5 items)\n\nOutput ONLY JavaScript/JSX code. Use React hooks (React.useState, React.useEffect). Define a component called App. End with ReactDOM.createRoot(document.getElementById('root')).render(<App />).\n\nDescription:\n{{inputs}}",
-    defaultSystemPrompt: "You are an expert UI designer and React developer. You create beautiful, modern, production-quality user interfaces using Tailwind CSS classes. Focus on visual polish: gradients, shadows, rounded corners, good typography, proper spacing, and smooth transitions. Make it look like a real product — not a demo. Output ONLY JavaScript/JSX code. Use the React.* API. Define App component. End with ReactDOM.createRoot(document.getElementById('root')).render(<App />).",
+    defaultPrompt:
+      "Design a beautiful React UI for the following. Use Tailwind CSS classes for ALL styling (no inline styles). Make it look like a real polished product.\n\nDesign requirements:\n- Modern, clean design with attention to detail\n- Good spacing, typography, and color harmony\n- Use gradients, shadows, rounded corners, and smooth transitions\n- Hover states on interactive elements\n- Include at least one gradient or glassmorphism effect\n- Make it responsive\n- Use small mock data (3-5 items)\n\nOutput ONLY JavaScript/JSX code. Use React hooks (React.useState, React.useEffect). Define a component called App. End with ReactDOM.createRoot(document.getElementById('root')).render(<App />).\n\nDescription:\n{{inputs}}",
+    defaultSystemPrompt:
+      "You are an expert UI designer and React developer. You create beautiful, modern, production-quality user interfaces using Tailwind CSS classes. Focus on visual polish: gradients, shadows, rounded corners, good typography, proper spacing, and smooth transitions. Make it look like a real product — not a demo. Output ONLY JavaScript/JSX code. Use the React.* API. Define App component. End with ReactDOM.createRoot(document.getElementById('root')).render(<App />).",
     defaultWidth: 440,
     defaultHeight: 420,
   },
@@ -841,12 +889,12 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["designer"],
-    defaultPrompt: "Generate a beautiful, modern UI screen for the following. Make it polished and production-ready with good spacing, typography, and visual design.\n\nDescription:\n{{inputs}}",
+    defaultPrompt:
+      "Generate a beautiful, modern UI screen for the following. Make it polished and production-ready with good spacing, typography, and visual design.\n\nDescription:\n{{inputs}}",
     defaultSystemPrompt: "",
     defaultWidth: 440,
     defaultHeight: 420,
   },
-
   // === SDLC pipeline (six gated stages, ordered) ===
   // These boxes are the pipeline described in the app's SDLC blueprint: each
   // one produces exactly one artifact, approvals are recorded on the box, and
@@ -930,7 +978,6 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 420,
     defaultHeight: 460,
   },
-
   note: {
     label: "Note",
     icon: "🗒️",
@@ -1001,7 +1048,13 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
 /** Preset pill colors for Label boxes (index 0 = default). */
 export const LABEL_COLORS = ["#e2e8f0", "#fde68a", "#fecdd3", "#a5f3fc", "#a7f3d0"];
 
-export const AREA_COLORS = [
+/**
+ * Preset area colors for drawn rectangular areas: intentionally VERY light
+ * fills (Tailwind -100 shades) with slightly stronger -200/-300 borders, so
+ * areas read as background grouping regions and never compete with boxes,
+ * notes, or edges on top of them.
+ */
+export const AREA_COLORS: { fill: string; border: string; name: string }[] = [
   { fill: "#fef3c7", border: "#fde68a", name: "Amber" },
   { fill: "#dbeafe", border: "#bfdbfe", name: "Blue" },
   { fill: "#d1fae5", border: "#a7f3d0", name: "Emerald" },
