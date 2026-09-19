@@ -770,22 +770,40 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["everyone"],
-    defaultPrompt:
-      "Analyse the following input and produce a structured asset inventory aligned with ISO/IEC 27001:2022 (Annex A 5.9 and 5.12) and NIST SP 800-30 section 3.1.\n\n" +
-      "Identify relevant assets such as data, applications, systems, cloud services, infrastructure, people, and physical resources where applicable.\n\n" +
-      "For each asset, output a row in a Markdown table with these EXACT columns:\n" +
-      "| Asset Name | Type | Owner | Classification | Sensitivity | Location | Dependencies | Compliance Tags | Review Flags |\n\n" +
+              defaultPrompt:
+      "Extract a structured asset inventory from the input below.\n\n" +
+      "Output ONLY a valid JSON array. No markdown, no code fences, no explanation, no intro text. Just the JSON.\n\n" +
+      "Each item in the array MUST have these exact keys:\n" +
+      "{\n" +
+      '  "asset_name": string,\n' +
+      '  "type": "Data" | "Application" | "System" | "Cloud Service" | "Infrastructure" | "People" | "Physical",\n' +
+      '  "owner": string,\n' +
+      '  "classification": "Public" | "Internal" | "Confidential" | "Restricted",\n' +
+      '  "sensitivity": "High" | "Medium" | "Low",\n' +
+      '  "location": string,\n' +
+      '  "dependencies": string[],\n' +
+      '  "compliance_tags": string[],\n' +
+      '  "review_flags": string[]\n' +
+      "}\n\n" +
       "Rules:\n" +
-      "1. Type must be one of: Data, Application, System, Cloud Service, Infrastructure, People, Physical.\n" +
-      "2. Owner must be a NAMED INDIVIDUAL — never a department or team.\n" +
-      "3. Classification must be one of: Public, Internal, Confidential, Restricted.\n" +
-      "4. Sensitivity / Criticality must be stated as High, Medium, or Low.\n" +
-      "5. If information is missing, DO NOT invent it — mark it as \"Unknown / Requires Review\" and list it under an \"Assumptions & Gaps\" section.\n" +
-      "6. Do not give generic security advice. If you recommend a control, cite the specific ISO 27001 Annex A control or NIST SP 800-30 step. Otherwise write \"No applicable control identified\".\n" +
-      "7. Focus only on identifying, organising, and classifying assets. Do NOT perform threat modelling or risk scoring — those are handled by downstream boxes.\n\n" +
+      "- If a value is not stated in the input, set it to the string \"Unknown\".\n" +
+      "- NEVER invent owners, names, emails, or roles. If no owner is named in the input, set owner to \"Unknown\".\n" +
+      "- type must be EXACTLY one of these 7 literal strings: \"Data\", \"Application\", \"System\", \"Cloud Service\", \"Infrastructure\", \"People\", \"Physical\".\n" +
+      "- classification must be EXACTLY one of: \"Public\", \"Internal\", \"Confidential\", \"Restricted\".\n" +
+      "- sensitivity must be EXACTLY one of: \"High\", \"Medium\", \"Low\".\n" +
+      "- For classification and sensitivity, apply these mappings based on the nature of the asset (do not invent new facts, but use sensible defaults for well-known asset categories):\n" +
+      "  * Medical / health records, PII, payment data, credentials → Restricted, High\n" +
+      "  * Employee / HR / internal financial data → Confidential, Medium\n" +
+      "  * Internal documents, procedures, training material → Internal, Low\n" +
+      "  * Cloud infrastructure, networking, DNS, SSO, messaging → Internal, Low\n" +
+      "  * Public marketing material, public docs → Public, Low\n" +
+      "- dependencies, compliance_tags, and review_flags must be JSON arrays of strings.\n" +
+      "- One JSON object per asset. Do NOT list the same asset twice under different types.\n" +
+      "- Do NOT list regulations, laws, or standards (e.g. Privacy Act, HIPAA, PCI-DSS, GDPR) as assets. Put them in the \"compliance_tags\" field.\n" +
+      "- Do NOT give security advice. Do NOT recommend controls. Do NOT perform threat modelling or risk scoring.\n\n" +
       "Input:\n{{inputs}}",
     defaultSystemPrompt:
-      "You are a cybersecurity asset mapping assistant aligned with ISO/IEC 27001:2022 Annex A 5.9 and 5.12, and NIST SP 800-30 Section 3.1. Convert user and upstream information into a clean, structured asset inventory. Be accurate, avoid assumptions, flag missing data explicitly, and preserve useful dependencies between assets. Never invent facts. Never give generic advice.",
+          "You are a strict, literal cybersecurity asset mapping assistant. You output ONLY a valid JSON array of asset objects. Every object has the exact keys requested. You never invent owners, names, or values — if the input does not state something, you write the string \"Unknown\". You never give security advice or recommendations.",
     defaultWidth: 360,
     defaultHeight: 380,
   },
