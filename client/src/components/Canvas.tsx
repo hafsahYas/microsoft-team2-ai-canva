@@ -1,26 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ReactFlow,
   Background,
   BackgroundVariant,
   Controls,
   MiniMap,
+  ReactFlow,
   useReactFlow,
   useViewport,
-  type Node,
-  type Edge,
-  type Connection,
-  type NodeChange,
-  type EdgeChange,
-  type ReactFlowInstance,
+  type Node
 } from "@xyflow/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { isValidAreaSize, normalizeRect } from "../lib/areas.js";
 import { useBoardStore } from "../store/boardStore.js";
 import { AREA_COLORS } from "../types.js";
-import { isValidAreaSize, normalizeRect } from "../lib/areas.js";
-import { Button } from "./ui/Button.js";
-import BoxNode from "./BoxNode.js";
 import AreaNode from "./AreaNode.js";
+import BoxNode from "./BoxNode.js";
 import Cursors from "./Cursors.js";
+import { Button } from "./ui/Button.js";
 
 const nodeTypes = {
   agent: BoxNode,
@@ -366,7 +361,7 @@ function AreaDraft({ rect }: { rect: { x: number; y: number; width: number; heig
           top: rect.y,
           width: rect.width,
           height: rect.height,
-          backgroundColor: "rgba(6, 182, 212, 0.06)",
+         backgroundColor: "rgba(0, 212, 170, 0.10)",
           border: "1.5px dashed #06b6d4",
         }}
       />
