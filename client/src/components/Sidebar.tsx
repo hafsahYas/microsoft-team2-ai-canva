@@ -12,13 +12,28 @@ interface SidebarProps {
 
 const SECTIONS: { title: string; category: BoxCategory }[] = [
   { title: "Inputs", category: "input" },
+  // The gated SDLC pipeline (stages 1-6, in order). Kept next to Inputs because
+  // an Idea box is the usual seed for stage 1.
+  { title: "SDLC", category: "sdlc" },
   { title: "Workers", category: "worker" },
+  { title: "Companions", category: "companion" },
   { title: "Collaboration", category: "collab" },
   { title: "Custom", category: "custom" },
 ];
 
 /** Role filters shown as a dropdown at the top of the palette. */
 const ROLE_STORAGE_KEY = "ai-canva:sidebar-role";
+
+/** The selectable role profiles (must stay in sync with the <option> list). */
+const ROLES: BoxRole[] = ["designer", "developer", "product", "sdlc"];
+
+const ROLE_LABELS: Record<BoxRole, string> = {
+  everyone: "Everyone",
+  designer: "🎨 Designer",
+  developer: "💻 Developer",
+  product: "📊 Product",
+  sdlc: "🔁 SDLC",
+};
 
 export default function Sidebar({ open, onToggle }: SidebarProps) {
   const addBox = useBoardStore((s) => s.addBox);
@@ -29,7 +44,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
   const [role, setRole] = useState<"all" | BoxRole>(() => {
     const stored = typeof localStorage !== "undefined" ? localStorage.getItem(ROLE_STORAGE_KEY) : null;
-    return stored === "designer" || stored === "developer" || stored === "product" ? stored : "all";
+    return ROLES.includes(stored as BoxRole) ? (stored as BoxRole) : "all";
   });
 
   const handleAdd = (type: BoxType) => {
@@ -99,9 +114,11 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             title="Filter which boxes appear in the palette"
           >
             <option value="all">🧩 All boxes</option>
-            <option value="designer">🎨 Designer</option>
-            <option value="developer">💻 Developer</option>
-            <option value="product">📊 Product</option>
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABELS[r]}
+              </option>
+            ))}
           </select>
         </div>
 

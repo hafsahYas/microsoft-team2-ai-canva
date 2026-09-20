@@ -1,4 +1,28 @@
-export type BoxType = "agent" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "prd" | "devplan" | "ui" | "stitch" | "note" | "label" | "timer" | "custom" | "riskScorer" | "irplanner" | "threat-modeler";
+export type BoxType = "agent" | "chatbot" | "idea" | "research" | "summarize" | "image" | "documents" | "cartoon" | "slides" | "code" | "codeedit" | "prd" | "devplan" | "codemap" | "ui" | "stitch" | "note" | "label" | "timer" | "checklist" | "custom" | "sdlc-intent" | "sdlc-spec" | "sdlc-plan" | "sdlc-implement" | "sdlc-review" | "sdlc-merge" | "securityAdvisor" | "irPlanner" | "threatModeler" | "riskScorer" | "assetMapper";
+
+/**
+ * One task in a Checklist box — the team's shared to-do list. Every field is
+ * always defined (no `undefined`) because these objects live inside a BoxData
+ * array and Firestore rejects `undefined` anywhere in a nested value.
+ *
+ * Attribution is deliberately stored per item: a checklist is edited by the
+ * whole team (last-write-wins between simultaneous users, like notes), so
+ * "who added it" and "who ticked it off" are part of the record.
+ */
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  /** Email of the teammate who owns the task ("" = unassigned). */
+  assignee: string;
+  /** Who added the task (email) and when (epoch ms). */
+  createdBy: string;
+  createdAt: number;
+  /** Who ticked it off and when ("" / 0 while the task is still open). */
+  doneBy: string;
+  doneAt: number;
+}
+
 export type BoxStatus = "idle" | "running" | "done" | "error";
 
 /** A single slide in a generated deck. */
@@ -85,6 +109,8 @@ export const AGENT_CONTROLLER_SYSTEM_PROMPT = `You are an autonomous AI agent wo
 - "summarize" — combines its inputs into a concise summary
 - "prd" — turns research into a Product Requirements Document
 - "devplan" — turns a PRD into a short technical build plan
+- "codemap" — reads a GitHub repository and writes an orientation brief (what the code does, how it is structured, where to start); it needs the repo URL inside its prompt, e.g. https://github.com/owner/repo
+- "codeedit" — applies a change request to an existing GitHub repository and returns a reviewable diff (it needs the repo URL inside its prompt; it never writes to the repository)
 - "slides" — generates a pitch deck (JSON-driven slide deck)
 - "code" — generates a working React prototype (live preview on the board)
 - "ui" — generates a polished React UI prototype with Tailwind (live preview)
@@ -106,6 +132,425 @@ Each turn you take EXACTLY ONE action. Reply with ONLY one JSON object — no ma
 - Use existing boxes on the board when relevant (their titles are listed below) instead of recreating them.
 - You have a limited step budget — plan to finish comfortably. When everything has run and the task is satisfiable, call finish with a concise Markdown answer summarizing what you built and the key results.`;
 
+/**
+ * Static behavioral scaffold for Chatbot boxes (see client/src/lib/chatbot.ts,
+ * which compiles it with the user's personality + a live board snapshot into
+ * the system prompt for every reply).
+ */
+export const CHATBOT_BASE_PROMPT = `You are a small AI companion in the form of a stick figure standing at the bottom of a collaborative whiteboard app called "AI Canva". People chat with you in a side panel.
+
+## How to behave
+- Stay in character. Keep replies SHORT and conversational (1-3 sentences) unless the person explicitly asks for detail, a plan, or a written artifact.
+- You can SEE the board — a live snapshot of its boxes is provided with every message. Reference real boxes by name when it helps.
+- You cannot change the board, run tools, or generate images. If someone wants the board changed or a task executed, tell them to use the 🤖 Agent box (it builds and runs boxes) or add pipeline boxes themselves.
+- The conversation is shared: several people on the board may talk to you. Reply to the latest message in light of the whole history.
+- You are a companion, not a search engine: be warm, opinionated, and concrete.`;
+
+/**
+ * Stage 1 (Intent) of the gated SDLC pipeline — the raw change request becomes
+ * an intent document, and ambiguity must stay VISIBLE as open questions
+ * (the app locks this stage's gate whenever they remain; see
+ * client/src/lib/sdlc.ts for the pipeline rules and the gate evaluation).
+ */
+export const SDLC_INTENT_SYSTEM_PROMPT = `You are a staff engineer running Stage 1 (Intent) of a gated SDLC pipeline. You never resolve ambiguity: every question you had to guess around must appear as a visible open question, not a decision. Output Markdown only.`;
+
+export const SDLC_INTENT_PROMPT = `Turn the raw change request below into an intent document. Start with a single \`# \` heading using the request's own subject. Then exactly these sections:
+
+## Problem statement
+## Proposed outcome
+## Affected users / systems
+## Constraints
+## Open questions
+
+Rules:
+- Quote the raw request verbatim under Problem statement before analysing it.
+- Open questions must be a bullet list of concrete, answerable questions (each ends with "?"). Do NOT answer them here and do NOT invent facts to close them — an unresolved question must stay visible.
+- If the request is missing or unusable, say so under Problem statement and put what you need in Open questions.
+
+Raw request and any connected context:
+{{inputs}}`;
+
+/**
+ * Stage 2 (Spec) — resolves every open question from the intent with an
+ * explicit rule, applies the configured skills (org rule sets) and notes where
+ * they constrained a decision, and flags what it cannot resolve instead of
+ * guessing. Any remaining `⚠` item locks this stage's gate.
+ */
+export const SDLC_SPEC_SYSTEM_PROMPT = `You are a senior engineer and architect writing Stage 2 (Spec) of a gated SDLC pipeline. You resolve open questions with explicit, stated rules — never a vague gesture at a resolution — apply every supplied skill/rule set and note where it constrained a decision, and flag what you cannot resolve instead of guessing. Output Markdown only.`;
+
+export const SDLC_SPEC_PROMPT = `Write a spec document from the approved intent below.
+
+Sections:
+## Scope
+## Decisions
+One \`### Decision N — <short title>\` block per open question in the intent, each stating the resolution as an explicit RULE (what must happen, under what condition, with what limit). Number them from 1. Every open question in the intent must be accounted for; if an open question is already answered in the intent, restate the answer as a decision.
+## Skill constraints applied
+For each skill / rule set supplied below: what it constrained and how. Write "None supplied" when there are none.
+## Interfaces and data model
+## Non-functional requirements
+## Acceptance criteria
+## Unresolved
+Anything you cannot resolve without a human, each line prefixed \`⚠ \`. Never guess here — if this section is non-empty this stage stays gated.
+
+Intent and any connected context:
+{{inputs}}`;
+
+/**
+ * Stage 3 (Plan) — plan-only mode. The app itself cross-checks the plan's test
+ * list against the spec's `### Decision N` headings and locks the gate when a
+ * decision has no named test (see crossCheckSpecDecisions in lib/sdlc.ts).
+ */
+export const SDLC_PLAN_SYSTEM_PROMPT = `You are a tech lead writing Stage 3 (Plan) of a gated SDLC pipeline in plan-only mode: you may read the codebase but you do not write implementation code. Every decision resolved in the spec must be covered by a named test. Output Markdown only.`;
+
+export const SDLC_PLAN_PROMPT = `Write an implementation plan from the approved spec below. Plan only — no implementation code.
+
+Sections:
+## Files to change
+One bullet per file: \`path — what changes and why\`.
+## Implementation order
+Numbered steps, each executable on its own without breaking the build.
+## Tests
+One bullet per test: \`"<test name>" → which requirement or Decision N it proves\`. There MUST be a named test for every \`### Decision N\` in the spec, and the plan must name that decision.
+## Risks
+Regression surfaces, wide-blast-radius files, and what could break.
+## Rollback
+
+Spec, repository context and any connected inputs:
+{{inputs}}`;
+
+/**
+ * Stage 4 (Implementation) — produces the diff plus the evidence for each
+ * planned test, and must surface (not silently absorb) any plan step that turns
+ * out to be infeasible. A non-empty `## Plan deviations` section locks the gate.
+ */
+export const SDLC_IMPLEMENT_SYSTEM_PROMPT = `You are a careful engineer executing Stage 4 (Implementation) of a gated SDLC pipeline. You never claim a passing test you did not observe, and you never deviate from the approved plan silently: anything infeasible as written is surfaced as a deviation and stops the pipeline. Output Markdown only.`;
+
+export const SDLC_IMPLEMENT_PROMPT = `Execute the approved plan below and return the implementation artifact.
+
+Sections:
+## Diff
+A unified diff in a \`\`\`diff fenced block. If the real repository/files are not available to you, still write the diff you would apply and add one explicit line saying the diff is not applied.
+## Tests
+One bullet per test named in the plan: \`"<test name>" → expected evidence\`. Mark \`NOT RUN\` for any test you could not execute. Never report a pass you did not observe.
+## Plan deviations
+Anything in the plan that is infeasible as written and why. If a step must change, stop and surface it here instead of silently deviating — an empty section means the plan was followed exactly.
+## Follow-ups
+
+Approved plan and any connected inputs:
+{{inputs}}`;
+
+/**
+ * Stage 5 (Review) — completeness against the plan plus adversarial review
+ * passes. The artifact ends with a fenced JSON findings block that the app
+ * parses (lib/sdlc.ts parseFindings, with a Markdown-table fallback); any
+ * undismissed `blocking` finding locks this gate and blocks the Merge stage.
+ */
+export const SDLC_REVIEW_SYSTEM_PROMPT = `You are a staff reviewer running Stage 5 (Review) of a gated SDLC pipeline. You check the implementation against the plan, then review for bugs, security, and style/compliance against the supplied skills. Every finding gets a severity: blocking, important, or nit. Output the Markdown report, then exactly one fenced json findings block.`;
+
+export const SDLC_REVIEW_PROMPT = `Review the implementation artifact below.
+
+Passes:
+1. Completeness against the plan — every planned file and step present; say so explicitly if no plan is among the inputs.
+2. Correctness and bugs.
+3. Security.
+4. Style and compliance against the skills / rule sets supplied below.
+5. Whether the test evidence actually proves the planned tests.
+
+Output:
+## Summary
+## Findings
+A Markdown table: | severity | description | location |  (severity is exactly one of: blocking, important, nit; location is \`path:line\` or a short pointer). Write "None" when you found nothing.
+## Test evidence assessment
+## Residual risk
+
+Then, as the very last thing in your reply, ONE \`\`\`json fenced block containing the same findings as an array (no text after it):
+[{"severity":"blocking","description":"...","location":"src/x.ts:42"}]
+
+The implementation, the plan, and any connected inputs:
+{{inputs}}`;
+
+/**
+ * Stage 6 (Merge) — the app cannot merge: the artifact is the record a human
+ * merges (commit message + PR body), and approving it IS the recorded ship
+ * decision. Always a hard gate.
+ */
+export const SDLC_MERGE_SYSTEM_PROMPT = `You are preparing Stage 6 (Merge) of a gated SDLC pipeline. You never claim a merge happened — you produce the record a human merges. Output Markdown only.`;
+
+export const SDLC_MERGE_PROMPT = `Prepare the merge record for the change that has passed the earlier gates.
+
+Sections:
+## Pre-merge checklist
+One bullet per gate, stating what was satisfied (intent approved, spec decisions resolved, plan names a test per decision, implementation evidence, review findings dismissed or resolved) and, if an input is missing, say \`NOT PROVIDED\` for it rather than assuming it passed.
+## Change summary
+## Commit message
+A conventional-commit subject line, then the body.
+## PR title and body
+Description, test plan, risk and rollback.
+## Manual follow-ups after merge
+
+Connected inputs:
+{{inputs}}`;
+
+/**
+ * The user-prompt template for applying a change request to code a Code (or UI
+ * Design) box already generated. Deliberately NOT editable per box: the rules in
+ * it are what stop an AI change from quietly dropping features the request never
+ * mentioned. The box's own system prompt and build prompt stay editable.
+ */
+export const CODE_CHANGE_PROMPT = `Here is the current code of a working prototype, followed by a change request. Apply ONLY that change and return the complete updated file.
+
+Rules:
+- Return the COMPLETE file — never a fragment, never a diff, never an explanation.
+- Keep every part the request does not mention exactly as it is: no reformatting, no renaming, no "improvements", no dropping features.
+- Change as little as the request allows. If the request is ambiguous, choose the smallest sensible interpretation and keep the rest working.
+- Keep the existing structure and style of the file.
+
+The current code:
+
+\`\`\`jsx
+{{code}}
+\`\`\`
+
+Change request:
+{{request}}`;
+
+/**
+ * Code Map worker — reads a GitHub repository (via the backend's
+ * /api/repo-digest endpoint, which fetches the tree and the files that matter
+ * most) and writes an orientation brief: what the code does, how it is
+ * structured, and where to start reading. Falls back to connected inputs
+ * (a Documents box, pasted code) when no repository is given.
+ */
+export const CODE_MAP_SYSTEM_PROMPT = `You are a staff engineer writing a codebase orientation brief. You describe what the code actually does, based strictly on the evidence provided — you never invent files, modules, or behaviour the evidence does not show. When the evidence is incomplete you say so and list it under Open questions. Output Markdown only.`;
+
+export const CODE_MAP_PROMPT = `Turn the repository evidence below into a code map: an orientation brief a new engineer can read in ten minutes before making their first change.
+
+Sections:
+## What this codebase is
+One paragraph: the system it implements and who uses it — based only on the evidence.
+## Tech stack
+Languages, frameworks, runtime, storage, and how you know (cite the manifest/config files you saw).
+## Structure
+A map of the top-level directories: \`path — what lives here and why\`.
+## Entry points
+Where execution starts (server bootstrap, main, CLI, page entry, worker), with the file path for each.
+## How the main flows work
+Trace 2-4 of the most important end-to-end flows through the files you can see (e.g. request → handler → store → response), naming the files at each hop.
+## Key abstractions
+The handful of modules/types everything else depends on, each with its responsibility in one line.
+## Tests and how to run things
+Test framework, where tests live, the commands the manifests imply, and what is clearly NOT covered.
+## Risks and hotspots
+Large files, unclear boundaries, duplicated logic, thin test coverage, and anything that looks fragile.
+## Where to start reading
+An ordered reading list of 3-6 files for someone about to make a first change, one line each on why.
+## Open questions
+What the evidence does not answer. Each line prefixed \`⚠ \`. Never guess here.
+
+Rules:
+- Cite real paths from the evidence. Never invent a path, module, or command.
+- If the evidence is a partial digest (files were capped or skipped), say so under Open questions instead of implying you saw everything.
+- Be specific to THIS codebase — no generic best-practice filler.
+
+Repository evidence and any connected context:
+{{inputs}}`;
+
+/**
+ * One message in a Chatbot box's ongoing conversation. Persisted in the
+ * box's `chatMessages` and shared across the board — several people talk to
+ * the same companion, so user messages carry `by` (displayName).
+ */
+export interface ChatMessage {
+  id: string;
+  role: "user" | "bot";
+  text: string;
+  /** Epoch ms. */
+  at: number;
+  /** Display name of who said it (user messages only; omitted = unknown). */
+  by?: string;
+}
+
+/**
+ * The six stages of the gated SDLC pipeline. Each stage is one box type; the
+ * stage order, hard-gate rules and gate evaluation live in
+ * `client/src/lib/sdlc.ts`.
+ */
+export type SdlcStage = "intent" | "spec" | "plan" | "implementation" | "review" | "merge";
+
+/**
+ * Gate state of an SDLC stage box. Absent = the stage has produced no artifact
+ * yet. `stale` means the box (or an upstream stage) was regenerated after an
+ * approval, so the approval no longer counts for the stages below it.
+ */
+export type SdlcGateState = "pending" | "approved" | "changes_requested" | "rejected" | "stale";
+
+/**
+ * One immutable version of an append-only artifact history. Regeneration (or an
+ * AI-applied change, or a revert) appends a new version — an existing version is
+ * never rewritten or removed. The SDLC stages and the Code box's code share this
+ * shape.
+ */
+export interface ArtifactVersion {
+  version: number;
+  /** The artifact itself (markdown for an SDLC stage, code for a Code box). */
+  content: string;
+  /** Epoch ms when the version was created. */
+  createdAt: number;
+  /** Display name of whoever produced it. */
+  createdBy: string;
+  /** Whether the model generated it or a human changed it. */
+  source: "generated" | "edited";
+  /** What prompted this version (the change request, "" otherwise). */
+  note: string;
+}
+
+/** An SDLC stage's artifact version (same record, stage-specific name). */
+export type SdlcVersion = ArtifactVersion;
+
+/** One append-only audit event of an SDLC stage box. */
+export interface SdlcEvent {
+  /** Epoch ms. */
+  at: number;
+  actor: string;
+  /** e.g. "approved spec v2", "requested changes on plan v1". */
+  action: string;
+  /** Always a string — Firestore rejects `undefined` in a nested object. */
+  note: string;
+}
+
+/**
+ * Code Edit worker — applies a change request to an EXISTING repository: it
+ * reads the files it needs (see the `paths` mode of /api/repo-digest), then
+ * returns a structured change set the app turns into a diff and a git-apply-able
+ * patch. The model writes whole files; the APP computes the diff, so what the
+ * human reviews is exactly what the patch contains.
+ */
+export const CODE_EDIT_SYSTEM_PROMPT = `You are a careful engineer making a focused change to an existing codebase. You return the complete new content of every file you change; you never invent files or paths that were not provided; you keep unrelated code byte-for-byte identical; and you state plainly what you could not verify. Reply with the JSON change set only.`;
+
+export const CODE_EDIT_PROMPT = `Apply the change request below to the repository files provided.
+
+Return ONLY a JSON object, in one \`\`\`json fenced block with nothing after it:
+{"summary":"one line describing the change","changes":[{"path":"src/x.ts","operation":"update","content":"<the COMPLETE new file content>","reason":"why this file changes"}],"notes":["anything you could not verify or decide"]}
+
+Rules:
+- \`operation\` is "create", "update" or "delete".
+- \`content\` is the WHOLE file — never a fragment, never a diff. Every line you are not changing must still be present and identical. The app computes the diff itself.
+- Only touch files whose current content is given to you below. Never invent a path, and never touch a file that says its content was clipped or could not be read.
+- Keep the change as small as the request allows: no drive-by refactors, no reformatting, no unrelated cleanups.
+- If the request cannot be made with the files provided, return an empty \`changes\` array and explain what is missing in \`notes\`.
+- Nothing here has been compiled or tested. Put every unverified assumption in \`notes\` — do not claim it works.
+
+Change request:
+{{inputs}}`;
+
+/** One file in a Code Edit change set (a proposed create/update/delete). */
+export interface FileChange {
+  /** Repository-relative path. */
+  path: string;
+  operation: "create" | "update" | "delete";
+  /** The complete new file content ("" for a delete). */
+  content: string;
+  /** The content the edit was computed from ("" for a create). */
+  original: string;
+  /** Lines added, for the file list and the patch. */
+  added: number;
+  /** Lines removed. */
+  removed: number;
+  /** The model's reason for touching this file. */
+  reason: string;
+}
+
+/**
+ * How a Code Edit run chose and read its target files — kept on the box so the
+ * change set is auditable ("which files were read, and why these").
+ */
+export interface EditMeta {
+  /** "pinned" (the box's own file list), "plan" (an upstream SDLC Plan), "triage". */
+  source: string;
+  /** Paths whose current content was read before the edit. */
+  read: string[];
+  /** Requested paths that could not be read (missing, or too large to edit). */
+  missing: string[];
+  /** Epoch ms of the last change set (0 = never). */
+  generatedAt: number;
+  /** Why the run failed or was incomplete ("" on success). */
+  error: string;
+  /** The model's own notes / unverified assumptions. */
+  notes: string[];
+}
+
+/**
+ * Where a box's code was last published (the 🚀 Deploy button, which ships the
+ * box's code to here.now — see `client/src/lib/deploy.ts`). Every field is always
+ * defined: Firestore rejects `undefined` inside a nested value.
+ */
+export interface DeployInfo {
+  /** here.now Site slug — sent back to update the same Site. */
+  slug: string;
+  /** The live URL, e.g. `https://cobalt-castle-y2d3.here.now/`. */
+  url: string;
+  /** The live version at deploy time — sent back as `baseVersionId`. */
+  versionId: string;
+  /**
+   * Anonymous Sites only, and returned by here.now EXACTLY ONCE: without it the
+   * Site can never be updated again. Kept on the box so redeploys work.
+   */
+  claimToken: string;
+  /** Anonymous-only claim link ("" for a permanent Site). */
+  claimUrl: string;
+  /** True when the Site is anonymous (expires) rather than permanent. */
+  anonymous: boolean;
+  /** ISO expiry for an anonymous Site ("" when permanent). */
+  expiresAt: string;
+  /** Epoch ms of the last successful deploy (0 = never). */
+  deployedAt: number;
+  /** Files published in the last deploy. */
+  fileCount: number;
+  /** Bytes published in the last deploy. */
+  bytes: number;
+  /** Non-fatal notes from here.now (e.g. a manifest warning). */
+  warnings: string[];
+  /** Why the last deploy attempt failed ("" on success). */
+  error: string;
+}
+
+/** One structured review finding parsed from the Review box's artifact. */
+export interface SdlcFinding {
+  id: string;
+  severity: "blocking" | "important" | "nit";
+  description: string;
+  /** `path:line` or a short pointer ("" when the model gave none). */
+  location: string;
+  dismissed: boolean;
+  dismissedBy: string;
+}
+
+/**
+ * What a Code Map box actually read, recorded on the box after every run so the
+ * brief is auditable ("which revision, which files, what was skipped"). Every
+ * field is always defined — Firestore rejects nested `undefined`.
+ */
+export interface RepoMeta {
+  /** "owner/repo" ("" when no repository was resolved). */
+  repo: string;
+  /** Branch or tag that was read. */
+  branch: string;
+  /** Files whose contents made it into the digest. */
+  files: number;
+  /** Entries in the repository tree (before digest selection). */
+  treeEntries: number;
+  /** Characters of digest handed to the model. */
+  chars: number;
+  /** True when the digest hit the file/char cap (the brief is not complete). */
+  truncated: boolean;
+  /** Epoch ms of the fetch (0 when nothing was fetched). */
+  fetchedAt: number;
+  /** Why the fetch failed ("" on success); the run falls back to inputs. */
+  error: string;
+  /** Human-readable notes: skipped/ignored file counts, cap hits. */
+  notes: string[];
+}
+
 /** Data stored per-box, separate from React Flow's graph nodes. */
 export interface BoxData {
   content: string;
@@ -121,10 +566,20 @@ export interface BoxData {
   slides?: Slide[];
   /** For Code boxes: the generated React component code (JSX). */
   code?: string;
+  /** Code boxes: the change request to apply to the current code (AI edit). */
+  changePrompt?: string;
+  /** Code boxes: append-only history of every code version (never rewritten). */
+  codeVersions?: ArtifactVersion[];
+  /** Code boxes: the version the current `code` corresponds to (0 = none). */
+  codeVersion?: number;
   /** Token usage from the most recent LLM call for this box (text AI boxes). */
   tokens?: { promptTokens: number; completionTokens: number; totalTokens: number };
   /** For Agent boxes: the step log of the most recent (or current) run. */
   agentSteps?: AgentStep[];
+  /** For Chatbot boxes: the ongoing conversation (shared per board). */
+  chatMessages?: ChatMessage[];
+  /** For Chatbot boxes: the user-provided persona description. */
+  personality?: string;
   /** For Note boxes: who created the note (set once at creation). */
   authorEmail?: string;
   authorName?: string;
@@ -139,16 +594,65 @@ export interface BoxData {
   timerRemainingMs?: number;
   /** Email of the user who last started the timer (shown as attribution). */
   timerStartedBy?: string;
+  /**
+   * For Checklist boxes: the shared team to-do items (see
+   * `client/src/lib/checklist.ts` for every mutation and the paste parser).
+   */
+  checklistItems?: ChecklistItem[];
+  /**
+   * SDLC stage boxes (see client/src/lib/sdlc.ts). Versions and history are
+   * append-only, and every object stored in them has all of its keys defined —
+   * Firestore rejects `undefined` anywhere inside a nested value.
+   */
+  sdlcVersions?: SdlcVersion[];
+  sdlcHistory?: SdlcEvent[];
+  /** Gate state; absent when the stage has not produced an artifact yet. */
+  sdlcGate?: SdlcGateState;
+  /** The version the current approval applies to (latest at approval time). */
+  sdlcApprovedVersion?: number;
+  sdlcApprovedBy?: string;
+  /** Epoch ms of the approval. */
+  sdlcApprovedAt?: number;
+  /** Last "request changes" note — injected into the next regeneration. */
+  sdlcFeedback?: string;
+  /** Review box: structured findings parsed from the artifact. */
+  sdlcFindings?: SdlcFinding[];
+  /** Spec box: open questions still unresolved (each one forces the gate). */
+  sdlcOpenItems?: string[];
+  /** Plan box: spec decisions that have no named test in the plan. */
+  sdlcGaps?: string[];
+  /** Implementation box: the artifact reports a deviation from the plan. */
+  sdlcDeviation?: boolean;
+  /**
+   * Whether downstream stages must wait for this stage's approval. Default
+   * true; locked on for Intent/Merge and whenever a forced-gate condition
+   * applies (the app refuses to turn it off rather than silently allowing it).
+   */
+  sdlcGateRequired?: boolean;
+  /** Org rule sets (security, brand, compliance) injected into spec/review. */
+  skills?: string;
+  /** Code Map / Code Edit boxes: the GitHub repository to read ("" = inputs only). */
+  repoUrl?: string;
+  /** Code Map / Code Edit boxes: what the last run actually read. */
+  repoMeta?: RepoMeta;
+  /** Code Edit boxes: repository paths to change, one per line ("" = auto). */
+  filesToEdit?: string;
+  /** Code Edit boxes: the proposed change set (whole files, app-computed diff). */
+  changeSet?: FileChange[];
+  /** Code Edit boxes: how the targets were chosen and what was read. */
+  editMeta?: EditMeta;
+  /** Code / UI / Stitch / Code Edit boxes: where the code was last published. */
+  deploy?: DeployInfo;
 }
 
 /** Metadata for each box type. */
-export type BoxCategory = "input" | "worker" | "collab" | "custom";
+export type BoxCategory = "input" | "worker" | "collab" | "companion" | "custom" | "sdlc";
 
 /**
  * A role/persona a box is aimed at. Boxes tagged `"everyone"` appear in every
  * role view (they are shared pipeline scaffolding). See `docs/BOX_TYPES.md`.
  */
-export type BoxRole = "everyone" | "designer" | "developer" | "product";
+export type BoxRole = "everyone" | "designer" | "developer" | "product" | "sdlc";
 
 export interface BoxTypeMeta {
   label: string;
@@ -192,6 +696,117 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 400,
     defaultHeight: 480,
   },
+  chatbot: {
+    label: "Chatbot",
+    icon: "🧍",
+    color: "#e11d48",
+    description: "A stick-figure companion that stands at the bottom of the board, chats with the team, and can see your boxes. Give it a personality!",
+    hasAI: true,
+    category: "companion",
+    roles: ["everyone"],
+    defaultPrompt: "",
+    defaultSystemPrompt: CHATBOT_BASE_PROMPT,
+    defaultWidth: 130,
+    defaultHeight: 180,
+  },
+  irPlanner: {
+    label: "IR Planner",
+    icon: "🚨",
+    color: "#ef4444",
+    description: "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Create a structured incident response plan based on the incident information below...\n\nIncident information:\n{{inputs}}",
+    defaultSystemPrompt: "You are an incident response planning assistant...",
+    defaultWidth: 400,
+    defaultHeight: 520,
+  },
+  securityAdvisor: {
+    label: "Security Advisor",
+    icon: "🛡️",
+    color: "#3C6E71",
+    description: "On-demand security and compliance guidance, available at any stage of the pipeline.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Review the connected content below and identify what stage of the pipeline it represents...\n\nContent:\n{{inputs}}",
+    defaultSystemPrompt: "You are a Security Advisor available at any stage of an AI-assisted security/compliance pipeline.",
+    defaultWidth: 320,
+    defaultHeight: 280,
+  },
+  riskScorer: {
+    label: "Risk Scorer",
+    icon: "🎲",
+    color: "#dc2626",
+    description: "Scores identified threats by likelihood × impact and produces a prioritized risk register.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Given the threats or incident scenarios below, identify each distinct threat...\n\nThreats:\n{{inputs}}",
+    defaultSystemPrompt: "You are a security risk analyst using a likelihood x impact scoring model.",
+    defaultWidth: 360,
+    defaultHeight: 360,
+  },
+  threatModeler: {
+    label: "Threat Modeler",
+    icon: "🧠",
+    color: "#8B5CF6",
+    description: "Identifies threats using STRIDE.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+    defaultPrompt: "Analyze each asset using STRIDE. For every threat identified, bucket it into exactly one of the six STRIDE categories, then cross-reference it against a relevant MITRE ATT&CK tactic and technique. If no clean ATT&CK technique matches, state \"closest match\" and explain why in one sentence, rather than forcing an inaccurate mapping. Structure each threat entry so it can be directly consumed by a downstream risk-scoring process (threat description, STRIDE category, ATT&CK reference or closest-match note).\n\nAsset Inventory:\n{{inputs}}",
+    defaultSystemPrompt: "You are a threat modeling expert specializing in STRIDE methodology and MITRE ATT&CK. For each threat you identify, output: a short threat description, its STRIDE category, and a corresponding ATT&CK tactic and technique ID where one clearly applies, or \"closest match: [technique] \u2014 [why it's approximate]\" when the mapping is not clean. Research shows some STRIDE categories (e.g. Repudiation) map to ATT&CK techniques far less reliably than others (e.g. Spoofing) \u2014 do not fabricate a confident-sounding technique reference just to fill the field. Honesty about mapping uncertainty is more valuable than false precision.",
+    defaultWidth: 360,
+    defaultHeight: 380,
+  },
+  assetMapper: {
+    label: "Asset Mapper",
+    icon: "🗂️",
+    color: "#0f766e",
+    description:
+      "Identify, classify, and structure organisational assets for downstream security analysis.",
+    hasAI: true,
+    category: "worker",
+    roles: ["everyone"],
+              defaultPrompt:
+      "Extract a structured asset inventory from the input below.\n\n" +
+      "Output ONLY a valid JSON array. No markdown, no code fences, no explanation, no intro text. Just the JSON.\n\n" +
+      "Each item in the array MUST have these exact keys:\n" +
+      "{\n" +
+      '  "asset_name": string,\n' +
+      '  "type": "Data" | "Application" | "System" | "Cloud Service" | "Infrastructure" | "People" | "Physical",\n' +
+      '  "owner": string,\n' +
+      '  "classification": "Public" | "Internal" | "Confidential" | "Restricted",\n' +
+      '  "sensitivity": "High" | "Medium" | "Low",\n' +
+      '  "location": string,\n' +
+      '  "dependencies": string[],\n' +
+      '  "compliance_tags": string[],\n' +
+      '  "review_flags": string[]\n' +
+      "}\n\n" +
+      "Rules:\n" +
+      "- If a value is not stated in the input, set it to the string \"Unknown\".\n" +
+      "- NEVER invent owners, names, emails, or roles. If no owner is named in the input, set owner to \"Unknown\".\n" +
+      "- type must be EXACTLY one of these 7 literal strings: \"Data\", \"Application\", \"System\", \"Cloud Service\", \"Infrastructure\", \"People\", \"Physical\".\n" +
+      "- classification must be EXACTLY one of: \"Public\", \"Internal\", \"Confidential\", \"Restricted\".\n" +
+      "- sensitivity must be EXACTLY one of: \"High\", \"Medium\", \"Low\".\n" +
+      "- For classification and sensitivity, apply these mappings based on the nature of the asset (do not invent new facts, but use sensible defaults for well-known asset categories):\n" +
+      "  * Medical / health records, PII, payment data, credentials → Restricted, High\n" +
+      "  * Employee / HR / internal financial data → Confidential, Medium\n" +
+      "  * Internal documents, procedures, training material → Internal, Low\n" +
+      "  * Cloud infrastructure, networking, DNS, SSO, messaging → Internal, Low\n" +
+      "  * Public marketing material, public docs → Public, Low\n" +
+      "- dependencies, compliance_tags, and review_flags must be JSON arrays of strings.\n" +
+      "- One JSON object per asset. Do NOT list the same asset twice under different types.\n" +
+      "- Do NOT list regulations, laws, or standards (e.g. Privacy Act, HIPAA, PCI-DSS, GDPR) as assets. Put them in the \"compliance_tags\" field.\n" +
+      "- Do NOT give security advice. Do NOT recommend controls. Do NOT perform threat modelling or risk scoring.\n\n" +
+      "Input:\n{{inputs}}",
+    defaultSystemPrompt:
+          "You are a strict, literal cybersecurity asset mapping assistant. You output ONLY a valid JSON array of asset objects. Every object has the exact keys requested. You never invent owners, names, or values — if the input does not state something, you write the string \"Unknown\". You never give security advice or recommendations.",
+    defaultWidth: 360,
+    defaultHeight: 380,
+  },
   research: {
     label: "Research",
     icon: "🔍",
@@ -222,25 +837,6 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 320,
     defaultHeight: 320,
   },
-
-  irplanner: {
-    label: "IR Planner",
-    icon: "🚨",
-    color: "#ef4444",
-    description:
-      "Generate a structured incident response plan aligned with SANS PICERL and NIST SP 800-61 Rev. 2.",
-    hasAI: true,
-    category: "worker",
-    roles: ["everyone"],
-    defaultPrompt:
-       "Create a structured incident response plan based on the incident information below. Align the plan with SANS PICERL and NIST SP 800-61 Rev. 2.\n\nUse clear Markdown headings and bullet points. Do NOT use Markdown tables or HTML tags such as <br>.\n\n## 1. Preparation\n- Response roles and responsibilities\n- Communication and escalation planning\n- Documentation requirements\n- Access requirements and preparedness resources\n- Identify organisation-specific decisions that require human input\n\n## 2. Detection and Analysis\n- Summarise the reported incident and known facts\n- Identify relevant precursors and indicators where applicable\n- Describe evidence and data sources that should be reviewed\n- Explain how the incident should be scoped and prioritised\n- Identify required notifications\n\n## 3. Containment\n- Recommend appropriate short-term containment actions\n- Recommend longer-term containment considerations\n- Consider potential damage, service availability, resources, and evidence preservation\n- Highlight actions that require human approval before execution\n\n## 4. Eradication\n- Describe steps for removing the root cause\n- Address malicious content, compromised accounts, backdoors, or vulnerabilities where supported by the evidence\n- Include relevant documentation and evidence-retention considerations\n\n## 5. Recovery\n- Describe safe restoration and validation steps\n- Include testing and monitoring requirements\n- Explain how to verify that affected systems are clean and functional\n- Identify restoration timing and monitoring decisions that require human approval\n\n## 6. Lessons Learned / Post-Incident Activity\n- Provide a play-by-play review covering who, what, where, when, why, and how\n- Identify what worked and what did not\n- Recommend improvements to the response process and security controls\n- Include incident cost and impact tracking where information is available\n- Identify evidence and documentation that should be retained\n\nClearly distinguish known facts from assumptions. Do not invent incident details, severity thresholds, organisational policies, legal requirements, law-enforcement requirements, authority levels, or other organisation-specific decisions. Mark missing or organisation-specific decisions as [HUMAN DECISION REQUIRED] and list clarification questions where necessary.\n\nIncident information:\n{{inputs}}",
-    defaultSystemPrompt:
-      `You are an incident response planning assistant. Generate a practical draft incident response plan using SANS PICERL and NIST SP 800-61 Rev. 2 as the structural framework.\n\nFORMAT RULES: Output ONLY plain Markdown headings, numbered lists, and bullet points. NEVER use the pipe character \"|\" for tables. NEVER create Markdown tables. NEVER use HTML tags such as <br>. NEVER use HTML formatting. Do not create table-like layouts. Use bullet points instead of tables.\n\nThe plan must contain these six sections:
-       `,
-     defaultWidth: 400,
-    defaultHeight: 520,
-  },
-
   image: {
     label: "Image",
     icon: "🖼️",
@@ -312,6 +908,19 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 440,
     defaultHeight: 420,
   },
+  codeedit: {
+    label: "Code Edit",
+    icon: "✍️",
+    color: "#1d4ed8",
+    description: "Point it at an existing GitHub repository and describe a change: it reads the files that matter, proposes the edit as a reviewable diff, and hands you a .patch to apply.",
+    hasAI: true,
+    category: "worker",
+    roles: ["developer", "sdlc"],
+    defaultPrompt: CODE_EDIT_PROMPT,
+    defaultSystemPrompt: CODE_EDIT_SYSTEM_PROMPT,
+    defaultWidth: 460,
+    defaultHeight: 520,
+  },
   prd: {
     label: "PRD",
     icon: "📄",
@@ -342,6 +951,19 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 360,
     defaultHeight: 380,
   },
+  codemap: {
+    label: "Code Map",
+    icon: "🔭",
+    color: "#0f766e",
+    description: "Read a GitHub repository (or connected code/documents) and write an orientation brief: what the code does, how it is structured, the main flows, the risks, and where to start reading.",
+    hasAI: true,
+    category: "worker",
+    roles: ["developer", "sdlc"],
+    defaultPrompt: CODE_MAP_PROMPT,
+    defaultSystemPrompt: CODE_MAP_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 440,
+  },
   ui: {
     label: "UI Design",
     icon: "✨",
@@ -370,6 +992,89 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultSystemPrompt: "",
     defaultWidth: 440,
     defaultHeight: 420,
+  },
+  // === SDLC pipeline (six gated stages, ordered) ===
+  // These boxes are the pipeline described in the app's SDLC blueprint: each
+  // one produces exactly one artifact, approvals are recorded on the box, and
+  // downstream stages refuse to run until their upstream stage is approved.
+  // The stage order, hard gates and gate evaluation live in lib/sdlc.ts.
+  "sdlc-intent": {
+    label: "1 · Intent",
+    icon: "🎯",
+    color: "#7c3aed",
+    description: "Stage 1 of 6 — turn a raw change request into an intent document (problem, outcome, affected systems, constraints) while keeping every open question visible. Always a hard gate.",
+    hasAI: true,
+    category: "sdlc",
+    roles: ["sdlc"],
+    defaultPrompt: SDLC_INTENT_PROMPT,
+    defaultSystemPrompt: SDLC_INTENT_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 460,
+  },
+  "sdlc-spec": {
+    label: "2 · Spec",
+    icon: "📐",
+    color: "#4338ca",
+    description: "Stage 2 of 6 — resolve every open question from the approved intent with an explicit rule, applying your org skills (security, brand, compliance). Unresolved items force the gate.",
+    hasAI: true,
+    category: "sdlc",
+    roles: ["sdlc"],
+    defaultPrompt: SDLC_SPEC_PROMPT,
+    defaultSystemPrompt: SDLC_SPEC_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 460,
+  },
+  "sdlc-plan": {
+    label: "3 · Plan",
+    icon: "🧭",
+    color: "#0e7490",
+    description: "Stage 3 of 6 — plan-only: files to change, implementation order, a named test for every spec decision, and risks. The app flags any decision with no test before you review it.",
+    hasAI: true,
+    category: "sdlc",
+    roles: ["sdlc"],
+    defaultPrompt: SDLC_PLAN_PROMPT,
+    defaultSystemPrompt: SDLC_PLAN_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 460,
+  },
+  "sdlc-implement": {
+    label: "4 · Implementation",
+    icon: "🛠️",
+    color: "#15803d",
+    description: "Stage 4 of 6 — execute the approved plan: the diff plus the evidence for each planned test. Anything infeasible as written surfaces as a deviation instead of a silent change.",
+    hasAI: true,
+    category: "sdlc",
+    roles: ["sdlc"],
+    defaultPrompt: SDLC_IMPLEMENT_PROMPT,
+    defaultSystemPrompt: SDLC_IMPLEMENT_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 460,
+  },
+  "sdlc-review": {
+    label: "5 · Review",
+    icon: "🔎",
+    color: "#b45309",
+    description: "Stage 5 of 6 — check the diff against the plan, then review for bugs, security and compliance. Findings are tagged blocking / important / nit; blocking findings block the merge until dismissed.",
+    hasAI: true,
+    category: "sdlc",
+    roles: ["sdlc"],
+    defaultPrompt: SDLC_REVIEW_PROMPT,
+    defaultSystemPrompt: SDLC_REVIEW_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 460,
+  },
+  "sdlc-merge": {
+    label: "6 · Merge",
+    icon: "🚀",
+    color: "#be123c",
+    description: "Stage 6 of 6 — the merge record: pre-merge checklist, commit message, PR body. Nothing ships silently: approving this stage is the recorded human ship decision.",
+    hasAI: true,
+    category: "sdlc",
+    roles: ["sdlc"],
+    defaultPrompt: SDLC_MERGE_PROMPT,
+    defaultSystemPrompt: SDLC_MERGE_SYSTEM_PROMPT,
+    defaultWidth: 420,
+    defaultHeight: 460,
   },
   note: {
     label: "Note",
@@ -410,6 +1115,19 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultWidth: 260,
     defaultHeight: 190,
   },
+  checklist: {
+    label: "Checklist",
+    icon: "✅",
+    color: "#059669",
+    description: "A shared team to-do list. Anyone can add, assign and tick off tasks — everyone sees the same list.",
+    hasAI: false,
+    category: "collab",
+    roles: ["everyone"],
+    defaultPrompt: "",
+    defaultSystemPrompt: "",
+    defaultWidth: 320,
+    defaultHeight: 340,
+  },
   custom: {
     label: "Custom",
     icon: "✨",
@@ -422,73 +1140,6 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     defaultSystemPrompt: "",
     defaultWidth: 320,
     defaultHeight: 320,
-  },
-  riskScorer: {
-    label: "Risk Scorer",
-    icon: "🎲",
-    color: "#dc2626",
-    description: "Scores identified threats by likelihood × impact and produces a prioritized risk register.",
-    hasAI: true,
-    category: "worker",
-    roles: ["everyone"],
-    defaultPrompt:
-      "Given the threats or incident scenarios below, identify each distinct threat and produce a risk register. For each threat: score Likelihood (1-5) and Impact (1-5), calculate Risk = Likelihood x Impact, briefly justify each score in one sentence, and note whether the risk is Low (1-6), Medium (7-14), or High (15-25). Present the results as a table sorted highest-risk first.\n\nThreats:\n{{inputs}}",
-    defaultSystemPrompt:
-      "You are a security risk analyst using a likelihood x impact scoring model consistent with NIST 800-30 and FAIR risk assessment principles. Be specific and realistic in your scoring — avoid rating everything as high risk. Justify each score briefly so a non-expert can follow your reasoning. Output in Markdown as a clear table.",
-    defaultWidth: 360,
-    defaultHeight: 360,
-  },
-  "threat-modeler": {
-    label: "Threat Modeler",
-    icon: "🧠",
-    color: "#8B5CF6",
-    description: "Identifies threats and attack vectors for assets using STRIDE methodology. Analyzes asset inventory and generates a threat list with severity ratings.",
-    hasAI: true,
-    category: "worker",
-    roles: ["everyone"],
-    defaultPrompt: `Based on the connected asset inventory below, analyze each asset and identify potential threats using the STRIDE methodology.
-
-STRIDE Categories:
-- Spoofing: Can someone impersonate a user or system?
-- Tampering: Can someone modify data maliciously?
-- Repudiation: Can someone deny performing an action?
-- Information Disclosure: Can sensitive data be exposed?
-- Denial of Service: Can the asset be made unavailable?
-- Elevation of Privilege: Can someone gain unauthorized access?
-
-For each asset, identify:
-1. Which STRIDE threats apply
-2. A description of the threat
-3. The relevant MITRE ATT&CK technique(s) or tactic(s), where a clear mapping exists. If no clear mapping applies, write "No clear mapping".
-4. The potential impact (High, Medium, Low)
-
-Output a table with these columns:
-| Asset Name | Threat Type | Description | MITRE ATT&CK | Impact |
-
-Asset Inventory:
-{{inputs}}`,
-
-    defaultSystemPrompt: `You are a threat modeling expert specializing in STRIDE methodology.
-
-Your task is to analyze an asset inventory and identify all relevant threats for each asset.
-
-Rules:
-1. Use STRIDE methodology: Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege
-2. For each asset, identify ALL relevant threat types
-3. For each threat, provide a clear description of the attack vector
-4. Map each threat to relevant MITRE ATT&CK technique(s) or tactic(s) where a clear mapping exists. If no clear mapping applies, write "No clear mapping" rather than guessing.
-5. Rate the impact as High, Medium, or Low based on the asset's classification
-6. If an asset has Restricted classification, threats typically have High impact
-7. If an asset has Public classification, threats typically have Low impact
-
-Reference standards:
-- STRIDE Threat Modeling Methodology
-- MITRE ATT&CK Framework
-- NIST SP 800-30 (Threat Identification)
-- ISO 27001 Annex A 8.25 (Secure Development)`,
-
-    defaultWidth: 360,
-    defaultHeight: 380,
   },
 };
 

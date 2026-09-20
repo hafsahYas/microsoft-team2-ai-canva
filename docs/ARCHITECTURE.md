@@ -135,7 +135,7 @@ hoisted ahead of `dotenv.config()`:
 - **`ollama.ts`** — `generateContent(systemPrompt, userPrompt)` calls Ollama's `/api/chat`
   endpoint. It targets **Ollama Cloud** at `https://ollama.com` by default (Bearer auth with
   `OLLAMA_API_KEY`), but respects `OLLAMA_HOST` so a local daemon also works. The model is set by
-  `OLLAMA_MODEL` (default `deepseek-v4-flash`).
+  `OLLAMA_MODEL` (default `deepseek-v4.1-flash`).
 - **`fal.ts`** — `generateCartoonImage({ prompt, imageUrl })`:
   - Image present → upload to fal storage (if base64), then `fal-ai/qwen-image-edit`
     (image-to-image).

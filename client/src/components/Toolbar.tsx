@@ -9,7 +9,7 @@ export default function Toolbar() {
   const [open, setOpen] = useState(true);
 
   return (
-    <div className="absolute bottom-4 left-4 z-10">
+    <div className="help-anchor absolute bottom-4 left-4 z-10">
       {open ? (
         <div className="rounded-xl bg-white/95 backdrop-blur border border-slate-200 shadow-xl shadow-slate-900/10 p-4 w-[300px]">
           <div className="flex items-center justify-between mb-3">

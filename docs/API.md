@@ -44,7 +44,7 @@ PRD, Dev Plan, Slides, Code, UI Design).
 ```json
 {
   "content": "string",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-v4.1-flash",
   "usage": { "promptTokens": 120, "completionTokens": 450, "totalTokens": 570 }
 }
 ```
@@ -60,7 +60,7 @@ persists it to Firestore (see "Token usage" below).
 | `400` | `userPrompt` missing or not a string |
 | `500` | Ollama call failed (e.g. missing `OLLAMA_API_KEY`) |
 
-The model defaults to `deepseek-v4-flash` and can be overridden with `OLLAMA_MODEL`. Requests go to
+The model defaults to `deepseek-v4.1-flash` and can be overridden with `OLLAMA_MODEL`. Requests go to
 `{OLLAMA_HOST}/api/chat` (default `https://ollama.com` for Ollama Cloud) authenticated with
 `OLLAMA_API_KEY`.
 
@@ -158,6 +158,135 @@ Firestore (`stitchJobs/{jobId}`) and the generation runs on a Cloud Task worker
 
 | `404` | Unknown `jobId` |
 | `500` | Failed to read the job |
+
+### `POST /api/repo-digest` — `{ repoUrl, paths? }`
+
+Read-only GitHub access for the **Code Map** box: fetches a repository's file tree and the files
+that explain it best, and returns a token-budgeted digest that the box feeds to the model.
+
+**Request**
+
+```json
+{ "repoUrl": "https://github.com/owner/repo", "paths": ["src/app.ts"] }
+```
+
+`paths` is optional and switches the endpoint into **whole-file mode**, used by the Code Edit box:
+exactly those paths are read, in full, instead of the ranked digest selection. Unsafe paths
+(traversal, absolute, `node_modules`/`.git`/build output) are refused, requested paths that are not
+in the tree come back in `missing`, and a file read beyond the per-file cap is returned with
+`clipped: true` so the caller knows a rewrite would lose the rest of it (the box refuses to edit
+those). Caps: 12 requested paths, 60k characters per file, 150k per response.
+
+Accepted forms: a GitHub URL (with optional `/tree/<branch>`, `#branch`, `.git` or a trailing
+slash), the `git@github.com:owner/repo.git` clone form, or the short `owner/repo`,
+`owner/repo#branch`, `owner/repo@branch`. **Only github.com is accepted** — the endpoint cannot be
+pointed at another host, so it is not a request proxy.
+
+**Response** — `200`
+
+```json
+{
+  "ok": true,
+  "repo": "owner/repo",
+  "branch": "main",
+  "digest": "Repository: owner/repo@main\n\n## File tree\n…\n\n## File contents\n…",
+  "files": 10,
+  "treeEntries": 158,
+  "chars": 71471,
+  "truncated": true,
+  "notes": ["Ignored 9 generated/binary/lock file(s)…", "Clipped 4 large file(s)…"],
+  "contents": [{ "path": "src/app.ts", "content": "…", "clipped": false }],
+  "missing": ["src/gone.ts"]
+}
+```
+
+`contents` is the same set of files in structured form (the Code Edit box uses it); `missing` lists
+requested paths that could not be read.
+
+How the digest is built (see `server/src/repo.ts`, duplicated as `functions/src/repo.ts`):
+
+- **One** API call for the tree (`/git/trees/<branch>?recursive=1`), plus one for the default
+  branch when none was given; file contents come from `raw.githubusercontent.com`, which does not
+  count against the API rate limit.
+- Files are ranked: README and dependency manifests, then entry points, then central modules
+  (`types`/`store`/`api`/`config`…), with per-directory and per-category caps — a monorepo's config
+  cluster can't crowd out the code that explains the system.
+- Directories that never belong in an orientation brief are dropped (`node_modules`, `dist`,
+  `build`, `target`, `vendor`, `__pycache__`, …), as are binaries, lockfiles, source maps and
+  minified files.
+- Caps: 24 files, 20 KB per file (larger files are **clipped**, not skipped), 60k characters of
+  file contents, 400 tree entries. Files over 400 KB are assumed generated and never downloaded.
+  Every cap that bites is reported in `notes`, and the box tells the model the digest is partial so
+  the brief can't claim completeness.
+
+Text generation needs no key, so a **public repository works with no configuration**.
+
+**Errors**
+
+| `400` | `repoUrl` is missing or is not a GitHub repository reference |
+| `502` | GitHub refused the request (not found, private without a token, rate limited, …) — the message says what to do |
+| `500` | Unexpected failure while reading the repository |
+
+### `POST /api/herenow-deploy` — `{ files, slug?, claimToken?, baseVersionId?, displayName?, displayDescription? }`
+
+Publishes a box's code to a live **here.now** Site (the 🚀 Deploy button on the Code, UI Design,
+Stitch UI and Code Edit boxes). here.now is a static host, so this is a real deployment: the box's
+code becomes a URL at `https://{slug}.here.now/`.
+
+**Request**
+
+```json
+{
+  "files": [{ "path": "index.html", "content": "<!DOCTYPE html>…" }],
+  "displayName": "Counter Box",
+  "displayDescription": "Published from AI Canva (Code box)"
+}
+```
+
+Send `slug` to update an existing Site. For an anonymous Site the update must also carry the
+`claimToken` from the original deploy, and `baseVersionId` (the `versionId` returned then) is
+strongly recommended: it makes the update an optimistic concurrency check, so a Site that changed
+since — someone edited it in the here.now dashboard, another agent redeployed — is **refused with a
+clear message instead of being silently replaced**.
+
+**Response** — `200`
+
+```json
+{
+  "ok": true,
+  "slug": "cobalt-castle-y2d3",
+  "siteUrl": "https://cobalt-castle-y2d3.here.now/",
+  "versionId": "01M2DCFKWYPT7V63FJPK6Y1D5Y",
+  "unchanged": false,
+  "anonymous": true,
+  "expiresAt": "2026-09-14T12:39:41.214Z",
+  "claimToken": "y_Wu0ZyWf-pdH0sP",
+  "claimUrl": "https://here.now/c/y_Wu0ZyWf-pdH0sP",
+  "warnings": [],
+  "fileCount": 2,
+  "bytes": 3518
+}
+```
+
+How it works (see `server/src/herenow.ts`, duplicated as `functions/src/herenow.ts`): here.now's
+publish flow is **create → upload → finalize**, and a Site is not live until finalize succeeds. The
+endpoint does all three server-side — the API key never reaches the browser — and it validates
+everything first:
+
+- files must be site-relative; **`.herenow/` paths are refused** (those are here.now configuration
+  manifests, so a generated box can never ship server-side config), as are traversal and absolute
+  paths;
+- caps: 400 files, 8 MB per file, 25 MB total (well inside here.now's own 2,500 files / 10 GB);
+- `warnings` from finalize are passed through rather than swallowed.
+
+**Anonymous vs permanent:** without `HERENOW_API_KEY` the Site is anonymous — live immediately,
+**expires after 24 hours**, and updatable only with the `claimToken`/`claimUrl`, which here.now
+returns **exactly once**. With a key configured the Site is permanent and belongs to the account.
+
+**Errors**
+
+| `400` | Nothing to publish, an unsafe path, a cap exceeded, or here.now refused the deploy (the message says which step: create, upload or finalize) |
+| `500` | Unexpected failure |
 
 ### `GET /api/admin/stats`
 
@@ -274,14 +403,31 @@ via `auth.updateUser`. An admin cannot block their own account.
 | Variable            | Required for      | Description                                    |
 | ------------------- | ----------------- | ---------------------------------------------- |
 | `OLLAMA_API_KEY`    | Text boxes        | Ollama Cloud API key (https://ollama.com/settings/keys) |
-| `OLLAMA_MODEL`      | Optional          | Model name (default `deepseek-v4-flash`)      |
+| `OLLAMA_MODEL`      | Optional          | Model name (default `deepseek-v4.1-flash`)      |
 | `OLLAMA_HOST`       | Optional          | Ollama host (default `https://ollama.com`)     |
 | `FAL_KEY`           | Cartoon box       | fal.ai API key                                 |
 | `STITCH_API_KEY`    | Stitch UI box     | Google Stitch API key                          |
+| `GITHUB_TOKEN`      | Optional          | Code Map box — see below                       |
+| `HERENOW_API_KEY`   | Optional          | Box deploys — anonymous 24h Sites without it    |
 | `PORT`              | Optional (server) | Preferred server port (default `3001`)         |
+
+**`HERENOW_API_KEY` is optional.** Without it, `POST /api/herenow-deploy` still works: it creates
+an **anonymous** here.now Site, live immediately but expiring after 24 hours and updatable only with
+the claim token returned once at deploy time. Adding a here.now API key makes deployed Sites
+permanent and owned by the account. `/api/health` reports `herenowKey: "configured" | "anonymous"`.
+
+**`GITHUB_TOKEN` is optional.** The Code Map box reads public repositories with no configuration
+(60 requests/hour per IP, and file contents come from `raw.githubusercontent.com`, which is not
+rate-limited). Setting a token unlocks **private repositories** and raises the API limit to 5,000
+requests/hour; a personal access token with read-only access to the repositories you want to map is
+enough (`public_repo`, or `repo` for private ones). It is read server-side only and is never sent to
+the client — `/api/health` merely reports `githubToken: "configured" | "optional"`.
 
 Copy the templates from `server/.env.example` / `functions/.env.example` into `.env` and fill in
 real values.
+
+> **Which model handles what?** See [docs/MODELS.md](MODELS.md) — the single source of truth for
+> the model map (text / UI screens / images), how to switch, and the change log.
 
 ## Workshops (facilitator & guests)
 

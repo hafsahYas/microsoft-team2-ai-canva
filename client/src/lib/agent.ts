@@ -19,8 +19,10 @@ export const AGENT_CREATABLE_TYPES = [
   "summarize",
   "prd",
   "devplan",
+  "codemap",
   "slides",
   "code",
+  "codeedit",
   "ui",
 ] as const;
 export type AgentCreatableType = (typeof AGENT_CREATABLE_TYPES)[number];
@@ -192,9 +194,9 @@ export function buildBoardInventory(
   const titleOf = (n: Node) => (n.data?.title as string) || "Unnamed";
 
   for (const n of nodes) {
-    // Areas aren't boxes; other agents are off-limits and would only tempt
-    // the model to run them — leave both out of the inventory.
-    if (n.type === "area" || n.type === "agent") continue;
+    // Areas aren't boxes; agents/chatbots are off-limits (and would only
+    // tempt the model to run or mention themselves) — leave all out.
+    if (n.type === "area" || n.type === "agent" || n.type === "chatbot") continue;
     const d = boxData[n.id];
     if (!d) continue;
     const out = clip(d.output || d.content, AGENT_INVENTORY_CLIP);
@@ -208,7 +210,10 @@ export function buildBoardInventory(
     .map((e) => {
       const s = nodes.find((n) => n.id === e.source);
       const t = nodes.find((n) => n.id === e.target);
-      if (!s || !t || s.type === "agent" || t.type === "agent") return null;
+      if (!s || !t) return null;
+      const skip = (node: Node) =>
+        node.type === "agent" || node.type === "chatbot" || node.type === "area";
+      if (skip(s) || skip(t)) return null;
       return `- "${titleOf(s)}" → "${titleOf(t)}"`;
     })
     .filter((l): l is string => !!l);

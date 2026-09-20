@@ -1,3 +1,7 @@
+import type { NamedInput } from "../types.js";
+import { CODE_CHANGE_PROMPT } from "../types.js";
+import { fillPromptTemplate } from "./prompts.js";
+
 /**
  * Wraps generated React component code in a self-contained HTML file
  * that loads React + Babel via CDN. Used for iframe preview and download.
@@ -74,6 +78,42 @@ export function extractCode(raw: string): string {
     code = codeBlockMatch[1].trim();
   }
   return code;
+}
+
+/**
+ * True when generated code is a complete, previewable prototype: it must define
+ * something and still mount it. Used both after a build and after an AI change,
+ * so a truncated reply can never replace good code.
+ */
+export function isCompletePrototype(code: string): boolean {
+  if (!code || !code.trim()) return false;
+  if (!/ReactDOM\.createRoot|ReactDOM\.render/.test(code)) return false;
+  return /function\s+App|const\s+App|class\s+App|export\s+default/.test(code);
+}
+
+/**
+ * Builds the prompt for an AI change to existing code: the current code, the
+ * change request, and any connected context (e.g. a Review box's findings).
+ *
+ * The template is fixed (see CODE_CHANGE_PROMPT) because its rules — return the
+ * complete file, change nothing else — are the safeguard against a rewrite that
+ * silently drops features.
+ */
+export function buildCodeChangePrompt(
+  opts: { code: string; request: string; context?: NamedInput[] },
+  template: string = CODE_CHANGE_PROMPT
+): string {
+  let filled = fillPromptTemplate(template, []);
+  filled = filled.replace(/\{\{code\}\}/g, () => opts.code.trim());
+  filled = filled.replace(/\{\{request\}\}/g, () => opts.request.trim() || "[no change request given]");
+
+  const context = (opts.context || []).filter((input) => (input.output || "").trim().length > 0);
+  if (context.length > 0) {
+    filled +=
+      "\n\nAdditional context from connected boxes (use it, but still apply only the request above):\n" +
+      context.map((input) => `${input.name}:\n${input.output.trim()}`).join("\n\n---\n\n");
+  }
+  return filled;
 }
 
 /**

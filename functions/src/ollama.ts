@@ -35,7 +35,7 @@ export interface GenerateResult {
  *
  * - Endpoint:  POST {OLLAMA_HOST}/api/chat   (default https://ollama.com)
  * - Auth:      Bearer token from OLLAMA_API_KEY
- * - Model:     OLLAMA_MODEL (default "deepseek-v4-flash")
+ * - Model:     OLLAMA_MODEL (default "deepseek-v4.1-flash")
  */
 export async function generateContent(
   systemPrompt: string,
@@ -43,7 +43,7 @@ export async function generateContent(
 ): Promise<GenerateResult> {
   const host = process.env.OLLAMA_HOST || "https://ollama.com";
   const apiKey = process.env.OLLAMA_API_KEY;
-  const model = process.env.OLLAMA_MODEL || "deepseek-v4-flash";
+  const model = process.env.OLLAMA_MODEL || "deepseek-v4.1-flash";
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
