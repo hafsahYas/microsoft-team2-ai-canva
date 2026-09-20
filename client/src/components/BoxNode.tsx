@@ -591,17 +591,12 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
             </span>
           )}
           <span className="text-xs text-slate-500 flex-shrink-0">{meta.label}</span>
-        </div>
-        <button
-          onClick={() => deleteBox(id)}
-          className="text-slate-500 hover:text-red-500 transition text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-red-50"
-          <span className="text-xs text-slate-400 flex-shrink-0">{meta.label}</span>
           {/* SDLC stage: gate state at a glance (approved / awaiting / stale) */}
           {isSdlc && <SdlcGateBadge data={boxData} />}
         </div>
         <button
           onClick={() => deleteBox(id)}
-          className="box-delete nodrag text-slate-400 hover:text-red-500 transition text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-red-50"
+          className="box-delete nodrag text-slate-500 hover:text-red-500 transition text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-red-50"
           title="Delete box"
         >
           ✕
@@ -1064,8 +1059,6 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
                 ⚠️ {boxData.error}
               </div>
             )}
-            {hasTextOutput && !isRunning && (
-              <div className="markdown-output text-slate-300 text-base">
             {/* Code Map: which repository this box read, and what came back */}
             {isCodeMap && (
               <RepoField
@@ -1081,7 +1074,7 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
             )}
 
             {hasTextOutput && !isRunning && !isCodeEdit && (
-              <div className="markdown-output text-slate-700 text-sm">
+              <div className="markdown-output text-slate-300 text-base">
                 <ReactMarkdown>{boxData.output}</ReactMarkdown>
               </div>
             )}
