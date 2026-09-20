@@ -12,13 +12,28 @@ interface SidebarProps {
 
 const SECTIONS: { title: string; category: BoxCategory }[] = [
   { title: "Inputs", category: "input" },
+  // The gated SDLC pipeline (stages 1-6, in order). Kept next to Inputs because
+  // an Idea box is the usual seed for stage 1.
+  { title: "SDLC", category: "sdlc" },
   { title: "Workers", category: "worker" },
+  { title: "Companions", category: "companion" },
   { title: "Collaboration", category: "collab" },
   { title: "Custom", category: "custom" },
 ];
 
 /** Role filters shown as a dropdown at the top of the palette. */
 const ROLE_STORAGE_KEY = "ai-canva:sidebar-role";
+
+/** The selectable role profiles (must stay in sync with the <option> list). */
+const ROLES: BoxRole[] = ["designer", "developer", "product", "sdlc"];
+
+const ROLE_LABELS: Record<BoxRole, string> = {
+  everyone: "Everyone",
+  designer: "🎨 Designer",
+  developer: "💻 Developer",
+  product: "📊 Product",
+  sdlc: "🔁 SDLC",
+};
 
 export default function Sidebar({ open, onToggle }: SidebarProps) {
   const addBox = useBoardStore((s) => s.addBox);
@@ -29,7 +44,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
   const [role, setRole] = useState<"all" | BoxRole>(() => {
     const stored = typeof localStorage !== "undefined" ? localStorage.getItem(ROLE_STORAGE_KEY) : null;
-    return stored === "designer" || stored === "developer" || stored === "product" ? stored : "all";
+    return ROLES.includes(stored as BoxRole) ? (stored as BoxRole) : "all";
   });
 
   const handleAdd = (type: BoxType) => {
@@ -59,7 +74,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       {!open && (
         <button
           onClick={onToggle}
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white shadow-lg rounded-l-xl w-8 h-16 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition border border-r-0 border-slate-200"
+          className="sidebar-tab absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white shadow-lg rounded-l-xl w-8 h-16 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition border border-r-0 border-slate-200"
           title="Show panel"
         >
           <span className="text-lg">◀</span>
@@ -99,9 +114,11 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             title="Filter which boxes appear in the palette"
           >
             <option value="all">🧩 All boxes</option>
-            <option value="designer">🎨 Designer</option>
-            <option value="developer">💻 Developer</option>
-            <option value="product">📊 Product</option>
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABELS[r]}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -124,7 +141,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                     <button
                       key={type}
                       onClick={() => handleAdd(type)}
-                      className="w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-200/70 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
+                      className="palette-row w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-200/70 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
                       title={meta.description}
                     >
                       <span
@@ -147,7 +164,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                         <div key={def.id} className="relative group">
                           <button
                             onClick={() => addCustomBox(def)}
-                            className="w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-200/70 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
+                            className="palette-row w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-200/70 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
                             title={def.description || "Add this custom box"}
                           >
                             <span
@@ -162,7 +179,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                           </button>
                           <button
                             onClick={() => removeCustomDef(def.id)}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full text-[10px] text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
+                            className="touch-visible absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full text-[10px] text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
                             title="Delete this template (boards keep their copies)"
                           >
                             ✕
@@ -176,7 +193,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                       )}
                       <button
                         onClick={() => setShowCustomModal(true)}
-                        className="w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/40 text-left transition hover:bg-indigo-50 hover:border-indigo-400"
+                        className="palette-row w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/40 text-left transition hover:bg-indigo-50 hover:border-indigo-400"
                         title="Create a custom box"
                       >
                         <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm flex-shrink-0 bg-indigo-100/70">

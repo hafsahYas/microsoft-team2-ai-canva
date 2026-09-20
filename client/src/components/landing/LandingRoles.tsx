@@ -31,6 +31,16 @@ const ROLES = [
       "Share one board across the whole team",
     ],
   },
+  {
+    icon: "🔁",
+    title: "For SDLC teams",
+    color: "#4f46e5",
+    points: [
+      "Intent → spec → plan → implementation → review → merge, gated",
+      "Approve, send back or edit every artifact — versions are never lost",
+      "Export the whole chain as one audit document",
+    ],
+  },
 ];
 
 export default function LandingRoles() {
@@ -46,7 +56,7 @@ export default function LandingRoles() {
           </p>
         </Reveal>
 
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
+        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {ROLES.map((role, i) => (
             <Reveal key={role.title} delay={i * 120}>
               <div className="h-full rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-white/20 hover:bg-white/[0.07]">

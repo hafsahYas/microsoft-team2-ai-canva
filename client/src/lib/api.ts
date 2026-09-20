@@ -164,3 +164,100 @@ export async function checkHealth(): Promise<{
   const res = await fetch(`${API_BASE}/health`);
   return res.json();
 }
+
+/** One file the backend read, in structured form (used by Code Edit). */
+export interface RepoFileContent {
+  path: string;
+  content: string;
+  /** True when the content was clipped — such a file must not be rewritten. */
+  clipped: boolean;
+}
+
+/** What the backend read from a repository (see server/src/repo.ts). */
+export interface RepoDigestResponse {
+  ok?: boolean;
+  repo: string;
+  branch: string;
+  /** The rendered digest (file tree + selected file contents) for the prompt. */
+  digest: string;
+  files: number;
+  treeEntries: number;
+  chars: number;
+  truncated: boolean;
+  notes: string[];
+  /** The same contents in structured form. */
+  contents: RepoFileContent[];
+  /** Requested paths (whole-file mode) that could not be read. */
+  missing: string[];
+}
+
+/**
+ * Asks the backend for a repository digest (the Code Map box).
+ *
+ * The server does the GitHub access — the browser never calls GitHub directly,
+ * so a server-side `GITHUB_TOKEN` (when configured) can unlock private
+ * repositories without the token ever reaching the client.
+ */
+export async function fetchRepoDigest(repoUrl: string, paths?: string[]): Promise<RepoDigestResponse> {
+  const res = await fetch(`${API_BASE}/repo-digest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(paths && paths.length > 0 ? { repoUrl, paths } : { repoUrl }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+/** One file published to a here.now Site. */
+export interface DeployFilePayload {
+  path: string;
+  content: string;
+}
+
+/** What a here.now deploy returns (see server/src/herenow.ts). */
+export interface DeployResponse {
+  ok?: boolean;
+  slug: string;
+  siteUrl: string;
+  /** Live version id — pass it back as `baseVersionId` to update safely. */
+  versionId: string;
+  unchanged: boolean;
+  anonymous: boolean;
+  /** ISO timestamp for an anonymous Site ("" when permanent). */
+  expiresAt: string;
+  /** Anonymous-only, returned ONCE — losing it means losing update access. */
+  claimToken: string;
+  claimUrl: string;
+  warnings: string[];
+  fileCount: number;
+  bytes: number;
+}
+
+/**
+ * Publishes files to a live here.now URL (the box deploy button).
+ *
+ * The backend does the publishing — the API key (when configured) stays
+ * server-side. Without a key the Site is anonymous: it expires in 24 hours and
+ * the returned claim token is the only way to update it afterwards.
+ */
+export async function publishSite(req: {
+  files: DeployFilePayload[];
+  slug?: string;
+  claimToken?: string;
+  baseVersionId?: string;
+  displayName?: string;
+  displayDescription?: string;
+}): Promise<DeployResponse> {
+  const res = await fetch(`${API_BASE}/herenow-deploy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

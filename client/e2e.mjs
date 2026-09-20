@@ -505,6 +505,163 @@ await safe("TD documents flow", async () => {
   check("TD document removed from the box", afterRemove === 1, `docs=${afterRemove}`);
 });
 
+// ---------- TC: Team checklist — a shared to-do list box ----------
+await safe("TC checklist flow", async () => {
+  check("TC add Checklist via palette", await addBoxViaPalette("Checklist"));
+  await page.waitForTimeout(400);
+
+  const boxId = await page.evaluate(() => {
+    const s = window.__dsh.useBoardStore.getState();
+    return s.nodes.find((n) => (n.data.boxType || n.type) === "checklist")?.id || null;
+  });
+  check("TC checklist box created with an empty task list", await page.evaluate((id) =>
+    Array.isArray(window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems)
+  , boxId));
+  check("TC renders the shared list panel", !!(await page.$('[data-testid="checklist-panel"]')));
+  check("TC empty state speaks to the team", /everyone on this board sees this list/i.test(await bodyText()));
+
+  // The collaboration contract: no AI, no Run, no ⚙, no Save, no handles.
+  const contract = await page.evaluate((id) => {
+    const node = document.querySelector(`.react-flow__node[data-id="${id}"]`);
+    const text = node ? node.innerText : "";
+    return {
+      run: /▶ Run/.test(text),
+      gear: /⚙/.test(text),
+      save: /💾 Save/.test(text),
+      handles: node ? node.querySelectorAll(".react-flow__handle").length : -1,
+    };
+  }, boxId);
+  check(
+    "TC checklist has no Run/⚙/💾 and no connection handles",
+    !contract.run && !contract.gear && !contract.save && contract.handles === 0,
+    JSON.stringify(contract)
+  );
+
+  // Type two tasks (real input + Enter through the native value setter).
+  const typeTask = (text) =>
+    page.evaluate((value) => {
+      const el = document.querySelector(".checklist-add-input");
+      if (!el) return false;
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      return true;
+    }, text);
+  await typeTask("Book the demo room");
+  await page.waitForTimeout(250);
+  await typeTask("Send the agenda");
+  await page.waitForTimeout(250);
+
+  // Pasting a Markdown list imports every line, keeping its done state.
+  await page.evaluate(() => {
+    const el = document.querySelector(".checklist-add-input");
+    const dt = new DataTransfer();
+    dt.setData("text/plain", "- [x] Prep the slides\n- [ ] Print handouts\n1. Check the projector");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(400);
+
+  const stored = await page.evaluate((id) => {
+    const items = window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || [];
+    return {
+      count: items.length,
+      texts: items.map((i) => i.text),
+      done: items.filter((i) => i.done).map((i) => i.text),
+      undefinedFields: items.filter((i) => Object.values(i).some((v) => v === undefined)).length,
+      authors: Array.from(new Set(items.map((i) => i.createdBy))),
+    };
+  }, boxId);
+  check("TC 2 typed tasks + a pasted 3-line list = 5 tasks", stored.count === 5, JSON.stringify(stored.texts));
+  check("TC paste kept the Markdown done state", stored.done.join() === "Prep the slides", JSON.stringify(stored.done));
+  check(
+    "TC paste stripped bullets and numbering",
+    stored.texts.includes("Print handouts") && stored.texts.includes("Check the projector"),
+    JSON.stringify(stored.texts)
+  );
+  check("TC every task field is defined (Firestore-safe)", stored.undefinedFields === 0);
+  check("TC tasks carry their author", stored.authors.join() === "e2e@test.local", JSON.stringify(stored.authors));
+
+  // Tick a task off through the real checkbox.
+  await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('[data-testid="checklist-item"]'));
+    const row = rows.find((r) => r.getAttribute("data-done") === "false") || rows[0];
+    row.querySelector(".checklist-check").click();
+  });
+  await page.waitForTimeout(300);
+  const ticked = await page.evaluate((id) => {
+    const items = window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || [];
+    const done = items.filter((i) => i.done);
+    return {
+      done: done.length,
+      by: Array.from(new Set(done.map((i) => i.doneBy))),
+      at: done.every((i) => i.doneAt > 0),
+      total: items.length,
+    };
+  }, boxId);
+  check(
+    "TC ticking records who did it and when",
+    ticked.done === 2 && ticked.by.join() === "e2e@test.local" && ticked.at,
+    JSON.stringify(ticked)
+  );
+  check("TC progress line reads 2 of 5 done", /2 of 5 done/.test(await bodyText()));
+
+  // Assign the task to someone on the board (the panel's people list).
+  const assigned = await page.evaluate(() => {
+    const sel = document.querySelector(".checklist-assign");
+    if (!sel) return null;
+    const options = Array.from(sel.options).map((o) => o.value);
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(sel, options[1] || options[0]);
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    return options.filter(Boolean);
+  });
+  const assignees = await page.evaluate((id) =>
+    (window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || []).map((i) => i.assignee)
+  , boxId);
+  check(
+    "TC a task can be assigned to a teammate",
+    !!assigned && assignees.includes("e2e@test.local"),
+    JSON.stringify({ assigned, assignees })
+  );
+
+  // Reorder: ▼ on the first row swaps it with the second.
+  const orderBefore = await page.evaluate((id) =>
+    (window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || []).map((i) => i.text)
+  , boxId);
+  await page.evaluate(() => {
+    const row = document.querySelector('[data-testid="checklist-item"]');
+    row.querySelector('button[title="Move down"]').click();
+  });
+  await page.waitForTimeout(250);
+  const orderAfter = await page.evaluate((id) =>
+    (window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || []).map((i) => i.text)
+  , boxId);
+  check(
+    "TC ▼ moves a task down the shared order",
+    orderAfter[0] === orderBefore[1] && orderAfter[1] === orderBefore[0],
+    JSON.stringify({ orderBefore, orderAfter })
+  );
+
+  // Clear done removes finished tasks only.
+  await page.evaluate(() => document.querySelector(".checklist-clear-done").click());
+  await page.waitForTimeout(250);
+  const afterClear = await page.evaluate((id) => {
+    const items = window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || [];
+    return { count: items.length, done: items.filter((i) => i.done).length };
+  }, boxId);
+  check("TC Clear done removes only finished tasks", afterClear.count === 3 && afterClear.done === 0, JSON.stringify(afterClear));
+
+  // Delete one task with its ✕.
+  await page.evaluate(() => {
+    const row = document.querySelector('[data-testid="checklist-item"]');
+    row.querySelector(".checklist-delete").click();
+  });
+  await page.waitForTimeout(250);
+  const afterDelete = await page.evaluate((id) =>
+    (window.__dsh.useBoardStore.getState().boxData[id]?.checklistItems || []).length
+  , boxId);
+  check("TC ✕ deletes a single task", afterDelete === 2, `items=${afterDelete}`);
+});
+
 // Close the fake-user page — the rest runs in fresh, isolated contexts.
 await page.close();
 
@@ -743,6 +900,150 @@ await pageA.goto(APP, { waitUntil: "load" });
       `label=${JSON.stringify(roster?.label)} list=${JSON.stringify(roster?.list)} dbg=${JSON.stringify(roster?.dbg)}`
     );
     check("T12 roster shows 2 online", (roster?.label || "").includes("2 online"), roster?.label || "");
+
+    // ----- T15: shared checklist — two real users, one to-do list -----
+    // The whole point of the box: B writes a task, A sees it; A ticks it off,
+    // B sees it ticked WITH A's attribution; the list survives a reload.
+    {
+      check(
+        "T15 B adds a Checklist via palette",
+        await pageB.evaluate(() => {
+          const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+            (b.textContent || "").trim().endsWith("Checklist")
+          );
+          if (!btn) return false;
+          btn.click();
+          return true;
+        })
+      );
+      const bListId = await waitFor(
+        () => pageB.evaluate(() => {
+          const s = window.__dsh.useBoardStore.getState();
+          return s.nodes.find((n) => (n.data.boxType || n.type) === "checklist")?.id || null;
+        }),
+        { label: "B adds checklist box" }
+      ).catch(() => null);
+      check("T15 B's checklist box exists", !!bListId);
+
+      // B types a task and presses Enter through the real DOM path.
+      await pageB.evaluate(() => {
+        const el = document.querySelector(".checklist-add-input");
+        if (!el) return;
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(el, "Run the retro at 4pm");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      });
+      const aSawTask = await waitFor(
+        () => pageA.evaluate(() =>
+          Object.values(window.__dsh.useBoardStore.getState().boxData).some((b) =>
+            (b.checklistItems || []).some((i) => i.text === "Run the retro at 4pm")
+          ) ? true : null
+        ),
+        { label: "A sees B's task", timeout: 25000 }
+      ).catch(() => null);
+      check("T15 B's task appears in A's list (shared, live)", !!aSawTask);
+
+      // A ticks the task off in A's own DOM (the box synced to A's canvas).
+      const aRendered = await waitFor(
+        () => pageA.evaluate(() => {
+          const rows = Array.from(document.querySelectorAll('[data-testid="checklist-item"]'));
+          return rows.some((r) => r.innerText.includes("Run the retro at 4pm")) ? true : null;
+        }),
+        { label: "A renders B's task", timeout: 25000 }
+      ).catch(() => null);
+      check("T15 A's canvas renders B's checklist box", !!aRendered);
+      await pageA.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-testid="checklist-item"]'));
+        const row = rows.find((r) => r.innerText.includes("Run the retro at 4pm"));
+        row && row.querySelector(".checklist-check").click();
+      });
+      const bSawTick = await waitFor(
+        () => pageB.evaluate(() => {
+          const items = Object.values(window.__dsh.useBoardStore.getState().boxData)
+            .flatMap((b) => b.checklistItems || []);
+          const it = items.find((i) => i.text === "Run the retro at 4pm");
+          return it && it.done && it.doneBy === "e2e-a@test.local" ? true : null;
+        }),
+        { label: "B sees A's tick", timeout: 25000 }
+      ).catch(() => null);
+      check("T15 A's tick syncs back to B with A's attribution", !!bSawTick);
+
+      // B assigns the task to A — the assignee picker lists the other members.
+      const bAssigned = await pageB.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-testid="checklist-item"]'));
+        const row = rows.find((r) => r.innerText.includes("Run the retro at 4pm"));
+        const sel = row && row.querySelector(".checklist-assign");
+        if (!sel) return null;
+        const option = Array.from(sel.options).find((o) => o.value === "e2e-a@test.local");
+        if (!option) return { options: Array.from(sel.options).map((o) => o.value) };
+        Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(sel, option.value);
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        return { options: Array.from(sel.options).map((o) => o.value) };
+      });
+      const aSawAssignee = await waitFor(
+        () => pageA.evaluate(() => {
+          const items = Object.values(window.__dsh.useBoardStore.getState().boxData)
+            .flatMap((b) => b.checklistItems || []);
+          const it = items.find((i) => i.text === "Run the retro at 4pm");
+          return it && it.assignee === "e2e-a@test.local" ? true : null;
+        }),
+        { label: "A sees the assignment", timeout: 25000 }
+      ).catch(() => null);
+      check(
+        "T15 B assigns a task to A (picker lists both members)",
+        !!aSawAssignee,
+        JSON.stringify(bAssigned)
+      );
+
+      // A pastes a two-line Markdown list — appended for everyone.
+      await waitFor(
+        () => pageA.evaluate(() => (document.querySelector(".checklist-add-input") ? true : null)),
+        { label: "A's checklist input", timeout: 25000 }
+      ).catch(() => null);
+      await pageA.evaluate(() => {
+        const el = document.querySelector(".checklist-add-input");
+        if (!el) return;
+        const dt = new DataTransfer();
+        dt.setData("text/plain", "- [ ] Write the retro notes\n- Book the offsite");
+        el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      });
+      const bSawPaste = await waitFor(
+        () => pageB.evaluate(() => {
+          const items = Object.values(window.__dsh.useBoardStore.getState().boxData)
+            .flatMap((b) => b.checklistItems || []);
+          return items.some((i) => i.text === "Write the retro notes") &&
+            items.some((i) => i.text === "Book the offsite")
+            ? items.length
+            : null;
+        }),
+        { label: "B sees A's pasted tasks", timeout: 25000 }
+      ).catch(() => null);
+      check("T15 A's pasted list reaches B (3 tasks shared)", bSawPaste === 3, `items=${bSawPaste}`);
+
+      // Persistence: the nested item objects must survive a Firestore round-trip.
+      await pageB.waitForTimeout(2000); // debounced save
+      await pageB.reload({ waitUntil: "load" });
+      const reloaded = await waitFor(
+        () => pageB.evaluate(() => {
+          const items = Object.values(window.__dsh.useBoardStore.getState().boxData)
+            .flatMap((b) => b.checklistItems || []);
+          return items.length >= 3 ? items : null;
+        }),
+        { label: "checklist reloads from Firestore", timeout: 45000 }
+      ).catch(() => null);
+      const retro = (reloaded || []).find((i) => i.text === "Run the retro at 4pm");
+      check(
+        "T15 the shared list survives a reload (state + attribution intact)",
+        !!retro && retro.done === true && retro.doneBy === "e2e-a@test.local" && retro.assignee === "e2e-a@test.local",
+        JSON.stringify(reloaded)
+      );
+      check(
+        "T15 every reloaded task field is defined (no Firestore undefined)",
+        !!reloaded && reloaded.every((i) => Object.values(i).every((v) => v !== undefined)),
+        JSON.stringify((reloaded || [])[0])
+      );
+    }
+
     await ctxB.close();
   }
 

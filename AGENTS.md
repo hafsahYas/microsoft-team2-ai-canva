@@ -27,10 +27,10 @@ to box — from an Idea, through Research, to PRD / Slides / Code / UI Design / 
 | Path | Purpose |
 |------|---------|
 | `client/` | React + Vite frontend. Entry `client/src/`, store at `client/src/store/boardStore.ts`. |
-| `server/` | Local Express dev backend (`/api/generate`, `/api/generate-image`, `/api/stitch-generate`, `/api/health`). |
+| `server/` | Local Express dev backend (`/api/generate`, `/api/generate-image`, `/api/stitch-generate`, `/api/repo-digest`, `/api/health`). |
 | `functions/` | Same API as a Firebase Cloud Function (`onRequest`) for production. Also hosts `src/stitchJobs.ts` (the async Stitch Cloud Task worker). |
 | `scripts/deploy.sh` | One-command production deploy (build client, build Functions, deploy Hosting + Functions + rules). |
-| `docs/` | Guides: `OVERVIEW`, `ONBOARDING`, `ARCHITECTURE`, `BOX_TYPES`, `API`, `DEPLOYMENT`, `OSS_READINESS`, plus `docs/course/` teaching materials. `docs/DEVLOG.md` is the session journal (read at session start, append after finishing work). |
+| `docs/` | Guides: `OVERVIEW`, `ONBOARDING`, `ARCHITECTURE`, `BOX_TYPES`, `API`, `MODELS`, `DEPLOYMENT`, `OSS_READINESS`, plus `docs/course/` teaching materials. `docs/DEVLOG.md` is the session journal (read at session start, append after finishing work). |
 | `firebase.json`, `firestore.rules`, `storage.rules` | Firebase config and security rules. |
 | `dsh-plugins/` | Out-of-tree plugins for the DeepSeek Harness Web GUI (not part of the app). See "dsh GUI plugins" below. |
 
@@ -74,15 +74,19 @@ npm run deploy         # = bash scripts/deploy.sh (production Firebase deploy)
   starting the server.
 - **Client pure logic lives in `client/src/lib/`** and is unit-tested: prompt templating
   (`prompts.ts`), code/HTML wrapping (`code.ts`), slides JSON parsing (`slides.ts`), Firestore
-  save serialization (`serialization.ts`), Documents-box text handling (`documents.ts`), and the
-  Agent box action protocol (`agent.ts`). `boardStore.ts` imports these rather than inlining them.
+  save serialization (`serialization.ts`), Documents-box text handling (`documents.ts`), the
+  Agent box action protocol (`agent.ts`), and the Chatbot companion prompt building (`chatbot.ts`).
+  `boardStore.ts` imports these rather than inlining them.
 - **Prompt templating** references connected inputs by name: `{{Box Name}}`, `{{input_1}}`,
   `{{inputs}}`.
-- **16 built-in box types** plus user-created custom boxes: Agent, Idea, Image, Documents,
-  Research, Summarize, PRD, Dev Plan, Cartoon Profile, Slides, Code, UI Design, Stitch UI, three
-  collaboration boxes (Note, Label, Timer), and the `custom` runtime type (see "Custom boxes"
-  below). Categories: `input`, `worker`, `collab` (standalone annotation tools: no AI, no Run, no
-  handles), and `custom` (the user's saved templates). See `docs/BOX_TYPES.md`.
+- **26 built-in box types** plus user-created custom boxes: Agent, Chatbot, Idea, Image,
+  Documents, Research, Summarize, PRD, Dev Plan, **Code Map**, **Code Edit**, Cartoon Profile,
+  Slides, Code, UI Design,
+  Stitch UI, four collaboration boxes (Note, Label, Timer, **Checklist**), the six **SDLC pipeline
+  stages** (Intent, Spec, Plan, Implementation, Review, Merge), and the `custom` runtime type (see
+  "Custom boxes" below). Categories: `input`, `sdlc` (the six gated stages), `worker`,
+  `companion` (the Chatbot), `collab` (standalone team tools: no AI, no Run, no handles),
+  and `custom` (the user's saved templates). See `docs/BOX_TYPES.md`.
 
 ## UI design system
 
@@ -205,8 +209,23 @@ The app reports per-call LLM token usage and tracks cumulative usage per user an
   grants the facilitator role to a test user via the Firestore admin REST API (OAuth token from
   firebase-tools), then drives the dashboard (workshop → template → team → seat codes), joins as
   a guest in a fresh context (code → profile modal → team board → own board → team board visible
-  in the list), and cleans everything up. Result at time of writing: **80/80 passed** (75 base
-  + 5 "TD" Documents-box tests).
+  in the list), and cleans everything up. Result at time of writing: **105/105 passed**
+  (75 base + 5 "TD" Documents-box tests + 13 "TC" Checklist tests + 9 "T15" shared-checklist
+  cross-user tests added since).
+- **UI smoke test:** `client/ui-smoke.mjs` (playwright-core + system Chrome, same pattern as
+  `e2e.mjs`) drives the **real dev app** on `localhost:5173` with `/api/generate` **and**
+  `/api/repo-digest` mocked at the page level (deterministic artifacts, so it needs no Ollama, no
+  GitHub and no Firebase). It covers the SDLC pipeline (palette section/View profile, the gate
+  refusing to run before approval **and making no model call**, approve/request-changes/
+  edit-as-new-version, all four app-side cross-checks, downstream `stale` invalidation, dismissing
+  a blocking finding, `💾 Save` + `🗂 Audit` asserted by reading the downloaded files, persistence
+  across a reload) **and** the Code Map worker (repository field, the digest and its provenance
+  reaching the prompt, what-was-read shown on the box, `code-map.md` download, the honest
+  "repository not read" fallback, a repo link in a connected box). Run `node ui-smoke.mjs` from
+  `client/` while `npm run dev` is up (the fake-user Firestore "Missing or insufficient
+  permissions" console error is expected noise and filtered; mocks must be re-installed after the
+  reload check, which is why they live in `installMocks()`). Keep its assertion strings in sync when
+  renaming gate labels/buttons.
 - **E2E environment gotchas:** (1) The firebase-tools access token
   (`~/.config/configstore/firebase-tools.json`) **expires ~hourly**; a stale token makes the
   facilitator PATCH silently 401 → the "TF facilitator button appears after grant" check FAILS.
@@ -216,6 +235,12 @@ The app reports per-call LLM token usage and tracks cumulative usage per user an
   `window.__dsh` undefined). Run it in a quiet window (no src writes for ~2 min). (3) Deps used
   only by the suite must be in `client/package.json` — an ad-hoc `npm install` without `--save`
   gets pruned by the next install (that silently removed `playwright-core` once).
+- **T7 can fail spuriously under model latency:** Part 1's "research generated via real
+  /api/generate" check polls at most 90s (45 × 2s) for a REAL model call to land, so a slow
+  generation shows up as three failures (`output 0 chars`, `token usage recorded`, `markdown output
+  rendered`) while the rest of the suite passes — **re-run before hunting a regression** (observed
+  once, passed 105/105 on the next run). Its sibling check `token badge visible` is a weak assertion
+  (it searches the whole page text for `tok`), so it can pass while those three fail.
 - **UI text markers the E2E clicks by** (keep these EXACT strings when restyling — the suite
   finds buttons by `textContent`, not selectors): header `Boards (` and `New Board` (capital B)
   and `🧑‍🏫 Facilitator`; palette rows keep the box label as the button's trailing text
@@ -230,6 +255,25 @@ The app reports per-call LLM token usage and tracks cumulative usage per user an
 ## Conventions & gotchas
 
 - **Adding a new box type:** see `docs/BOX_TYPES.md` and `docs/course/05_how_to_build_a_box.md`.
+- **Chatbot companion (🧍, Companions palette section):** a stick figure that LIVES on the board
+  and holds a continuous, shared conversation — unlike the Agent box it never "finishes" and never
+  touches boxes; it only talks. Category `"companion"`; renders via a custom early-return branch
+  in `BoxNode.tsx` (annotation pattern like note/label: no card/handles/Run; hover ✕ delete;
+  SVG figure in `components/StickFigure.tsx`, idle-bob/thinking animations in `index.css`).
+  Clicking the figure opens `ChatbotPanel.tsx` — **portaled to document.body** (CodeModal
+  pattern) — with the transcript, an editable name (`data.title`, default "Chat Pal"), the
+  🧠 **personality** editor (`boxData.personality`, free text; default in
+  `lib/chatbot.ts DEFAULT_PERSONALITY`), clear-chat, and Retry (strips the failed trailing
+  exchange, re-sends). Sending = store `sendChatMessage(id, text)`: appends the user message
+  (with `by` attribution — the conversation is SHARED, last-write-wins between simultaneous
+  users), builds context client-side each turn (compiled persona + `buildChatSystemPrompt` +
+  last 16 messages via `buildConversationTurn` + a board snapshot reusing `buildBoardInventory`
+  with chatbot/agent/area nodes filtered out) and calls `/api/generate`; no backend changes.
+  `runBox` early-returns for `chatbot` (talking is never a Run); tokens accrue cumulatively with
+  `boxType: "chatbot"`. History is capped (`MAX_CHAT_MESSAGES` 60 stored / 16 replayed). The node
+  seeds a greeting in `addBox` and carries `data.autoPlace`, which `Canvas.tsx`'s effect resolves
+  to the **bottom-center of the current viewport** (offset per extra chatbot) — it's then a
+  normal draggable node. E2E-verified live: board-aware answers, persona + rename round-trips.
 - **Agent box (🤖, first worker in the palette):** users type a task and Run — the LLM acts as an
   autonomous controller that manipulates the BOARD: each controller turn returns exactly ONE JSON
   action (`add_box` / `connect` / `run_box` / `finish`), executed with the regular store actions,
@@ -237,7 +281,8 @@ The app reports per-call LLM token usage and tracks cumulative usage per user an
   `boardStore.ts` (`runAgentLoop`, invoked from the `boxType === "agent"` branch of `runBox` — it
   manages its own status/inputs and bypasses the shared gathering); protocol/inventory/layout in
   `client/src/lib/agent.ts` (pure, unit-tested; `AGENT_CREATABLE_TYPES` whitelist = idea research
-  summarize prd devplan slides code ui — never image/documents/cartoon/stitch/agent); UI (task
+  summarize prd devplan codemap codeedit slides code ui — never image/documents/cartoon/stitch/agent, and
+  never the `sdlc-*` stages); UI (task
   textarea + live `agentSteps` timeline + ⏹ Stop so the loop halts between turns) in `BoxNode.tsx`.
   Running a box from the agent is a plain `await runBox(boxId)` — the target box's status/output is
   read back after. Budget: `MAX_AGENT_TURNS` (12) with a forced wrap-up on the last turn; 2
@@ -248,28 +293,171 @@ The app reports per-call LLM token usage and tracks cumulative usage per user an
   `detail`/`boxId` optional only when present). Token accounting reuses the standard ledger with
   `boxType: "agent"` (cumulative on the box). Multiplayer: another client sees the log grow via
   snapshots but a mid-run reload of the runner just stops the loop (run-like other boxes).
-- **Collaboration boxes (note / label / timer) are standalone:** category `"collab"`, `hasAI:
-  false`, and no connection handles, no Run button, no ⚙ panel — gate all of those in
-  `BoxNode.tsx` on `!isUtility` and keep the `runBox` early-return guard in `boardStore.ts`.
-  **Note and label render as annotations, not box cards:** BoxNode early-returns custom JSX for
-  them (post-it paper `.note-node` / floating chip `.label-node`, styles in `client/src/index.css`,
-  hover/selected ✕ delete instead of the header ✕). The timer is the only collab box that still
-  uses the standard card. Early returns sit after all hooks — keep every hook above them.
+- **Collaboration boxes (note / label / timer / checklist) are standalone:** category `"collab"`,
+  `hasAI: false`, and no connection handles, no Run button, no ⚙ panel — gate all of those in
+  `BoxNode.tsx` on `!isUtility` and keep the `runBox` early-return guard in `boardStore.ts`. The
+  generic text-output block and its "No output yet. Click Run" placeholder are gated on
+  `!isUtility` too (a collab box produces no output — it used to render that placeholder under the
+  timer). **Note and label render as annotations, not box cards:** BoxNode early-returns custom JSX
+  for them (post-it paper `.note-node` / floating chip `.label-node`, styles in
+  `client/src/index.css`, hover/selected ✕ delete instead of the header ✕). The timer and the
+  **checklist** are the only collab boxes that still use the standard card. Early returns sit after
+  all hooks — keep every hook above them.
+  **Checklist box (✅ `checklist`) — the team's shared to-do list:** `boxData.checklistItems` is an
+  array of `ChecklistItem` (id/text/done/assignee/createdBy/createdAt/doneBy/doneAt — **all fields
+  always defined**, per the Firestore rule), created empty-but-defined in `defaultBoxData`, synced
+  to everyone through the normal board save (last-write-wins, like a Note). **All rules are pure
+  functions in `client/src/lib/checklist.ts`** (`appendChecklistItems` + `parseChecklistLines` —
+  pasting a Markdown/bulleted multi-line list appends every line and keeps `- [x]`; `toggleChecklistItem`
+  records who ticked it and when; `setChecklistItemAssignee`/`setChecklistItemText`/`moveChecklistItem`/
+  `removeChecklistItem`/`clearDoneChecklistItems`; `checklistStats`, `checklistToMarkdown`,
+  `normalizeChecklist` repairing old board data; caps `MAX_CHECKLIST_ITEMS` 200 / 500 chars per task so
+  the board doc stays under Firestore's 1MB limit) — unit-tested in `checklist.test.ts`. The store
+  exposes exactly ONE action, `setChecklistItems(id, items)`, which **skips the write when nothing
+  changed** (reference-identical list); `components/ChecklistPanel.tsx` (rendered from BoxNode's body)
+  owns its own store subscriptions — never subscribe BoxNode to `collaborators`/`activeUsers` (that
+  would re-render every box on the canvas on each presence snapshot). Mutators return the same array
+  when the edit is a no-op, so no-op interactions never dirty the board. It is **not** in
+  `AGENT_CREATABLE_TYPES` (locked by a unit test).
   **Timer sync rule:** only state *transitions* (start/pause/resume/stop/reset) write to the
   store; the countdown display is always derived locally from `timerStartedAt`/`timerRemainingMs`
   (see `client/src/lib/timer.ts`) on a per-box 250ms interval — **never write per tick** or the
   save/snapshot machinery will flood. **Editor surfaces inside nodes** (the note textarea, label
-  input, idea textarea) must carry the `nodrag` (+ `nowheel` where scrollable) class or React
-  Flow drags the node while the user types. **Canvas zoom vs. box scroll:** the `<ReactFlow>`
+  input, idea textarea, checklist inputs) must carry the `nodrag` (+ `nowheel` where scrollable)
+  class or React Flow drags the node while the user types. **Canvas zoom vs. box scroll:** the
+  `<ReactFlow>`
   in `Canvas.tsx` sets `noWheelClassName="react-flow__node"`, so React Flow treats every node as a
   no-wheel zone — trackpad scroll/pinch over a box never zooms the canvas (it would fight the
   box's own scrolling); zooming still works over empty canvas space. Keep this prop if you add
   scrollable surfaces inside nodes.
 - **Role filter (palette profiles):** each box type carries `roles: BoxRole[]`
-  (`everyone`/`designer`/`developer`/`product`) in `client/src/types.ts`; the role chips in
-  `Sidebar.tsx` filter which boxes appear in the "Add Box" palette. This is a discovery-only label —
-  a pure UI filter, never a permission. Add sensible `roles` tags when adding a box; see
-  `docs/BOX_TYPES.md`.
+  (`everyone`/`designer`/`developer`/`product`/`sdlc`) in `client/src/types.ts`; the View dropdown in
+  `Sidebar.tsx` filters which boxes appear in the "Add Box" palette (the selectable profiles live in
+  the `ROLES` list there — extend it AND the `localStorage` whitelist check when adding one, or the
+  saved profile silently resets on reload). This is a discovery-only label — a pure UI filter, never
+  a permission. Add sensible `roles` tags when adding a box; see `docs/BOX_TYPES.md`.
+- **SDLC pipeline boxes (🎯📐🧭🛠️🔎🚀, palette section "SDLC", `roles: ["sdlc"]`):** the app's
+  translation of its SDLC blueprint — six gated stages (Intent → Spec → Plan → Implementation →
+  Review → Merge, box types `sdlc-intent`…`sdlc-merge`, category `sdlc`), each producing exactly one
+  artifact with a human gate before the next stage may run. **All pure logic lives in
+  `client/src/lib/sdlc.ts`** (stage metadata, `buildStagePrompt`, append-only
+  `appendVersion`/`appendEvent`, the parsers `parseOpenItems`/`parseDecisions`/`parseDeviation`/
+  `parseFindings`, `gateState`/`forcedGateReason`, `upstreamBlockReason`, `downstreamIds`, and
+  `buildAuditExport`) — unit-tested, so the store only orchestrates. The run path is
+  `runSdlcStage(id)` in `boardStore.ts` (reached from the `isSdlcBox` branch of `runBox`), and its
+  invariants are load-bearing: **the gate is checked BEFORE any model call** (a blocked stage sets
+  `status: "error"` with the reason and never touches the model); the artifact is **appended as a new
+  immutable version** (never overwritten — `output` merely mirrors the latest one so `{{inputs}}` and
+  the download keep working); the **app itself derives the cross-checks** (spec open items, spec
+  decisions with no named test in the plan, implementation deviations, parsed review findings) rather
+  than trusting the model; a **failed run appends nothing and leaves the gate untouched**; and
+  regenerating/editing/rejecting/sending back a stage marks every downstream **approved** stage
+  `stale` (`invalidateSdlcDownstream`). Gate state lives in `boxData` (`sdlcGate`, plus
+  `sdlcVersions`/`sdlcHistory`/`sdlcFindings`/`sdlcOpenItems`/`sdlcGaps`/`sdlcDeviation`/
+  `sdlcGateRequired`/`sdlcApproved*`/`sdlcFeedback`/`skills`) and every object stored in those nested
+  arrays has ALL keys defined (`""`/`0`/`false`) — Firestore rejects nested `undefined`. Gate actions
+  are store actions (`approveArtifact`/`requestChanges`/`rejectArtifact`/`editArtifact`/
+  `dismissFinding`/`setSdlcGateRequired`); `setSdlcGateRequired` **refuses** (returns false) for the
+  hard gates (Intent, Merge) and for any stage with a forced condition instead of silently allowing
+  it. UI: `components/SdlcGatePanel.tsx` (gate bar, findings, version history + audit trail, header
+  `SdlcGateBadge`) rendered from BoxNode's generic text branch; the ⚙ panel carries the Skills field
+  (spec/review) and the gate toggle. `sdlc-*` types are **deliberately absent from
+  `AGENT_CREATABLE_TYPES`** (an agent must not create/approve its own stages — locked by a unit
+  test). The whiteboard cannot run tests or merge: Implementation produces the diff + evidence and
+  Merge produces the record a human merges (approving Merge IS the ship decision).
+- **Code Map worker (🔭, Workers section, `roles: ["developer", "sdlc"]`):** reads a **GitHub
+  repository** and writes an orientation brief (what the code is, stack, structure, entry points,
+  main flows, key abstractions, tests, risks, where to start reading, open questions). Two halves,
+  both unit-tested: **`server/src/repo.ts`** (+ duplicate `functions/src/repo.ts`) does the GitHub
+  access and digest building, and **`client/src/lib/repo.ts`** does URL parsing/resolution and
+  prompt assembly. The run path is `runCodeMap(id)` in `boardStore.ts` (reached from the
+  `boxType === "codemap"` branch of `runBox`); it fetches the digest through
+  `POST /api/repo-digest` (the browser NEVER calls GitHub, which is what makes a server-side
+  `GITHUB_TOKEN` able to unlock private repos) and then calls the model. Rules that matter:
+  only **github.com owner/repo** references are accepted (the endpoint must not become a request
+  proxy); the tree is ONE API call and file contents come from `raw.githubusercontent.com` (not
+  rate-limited); the digest is built by `scorePath`/`selectFiles` — README + dependency manifests,
+  then entry points, then central modules, with per-directory and per-category caps, so a monorepo's
+  config cluster cannot crowd out the code that explains the system; the **file budget is spent in
+  value order** (not alphabetically) while the digest renders in path order; files over 400 KB are
+  never downloaded and larger files are **clipped, not skipped**; a failed fetch with connected
+  context still produces a brief, but the prompt is told the repository was NOT read. The box stores
+  `repoMeta` (repo/branch/files/treeEntries/chars/truncated/fetchedAt/error/notes — all fields
+  always defined) and shows it with the digest notes. `resolveRepoRef` deliberately ignores the
+  box's **stock** prompt (its placeholder `github.com/owner/repo` example is documentation), and the
+  resolved `#branch` is carried into the request URL so `owner/repo#release-2.0` doesn't silently
+  read the default branch.
+- **Code Edit worker (✍️, Workers section, `roles: ["developer", "sdlc"]`):** applies a change
+  request to an existing repository and returns a **reviewable change set + a `git apply`-able
+  patch** — it never writes to the repository (no token, no branch, no PR). All logic is in
+  **`client/src/lib/codeedit.ts`** (path safety, target selection, change-set validation, LCS line
+  diff, unified patch) and the run path is `runCodeEdit` in `boardStore.ts`; UI in
+  `components/CodeEditPanel.tsx` + the shared `components/RepoField.tsx` (also used by Code Map).
+  The flow, and the invariants that matter:
+  1. **target files** = the box's `filesToEdit` list → else a file list parsed out of an upstream
+     **SDLC Plan** artifact (`parsePlanFiles` → `editMeta.source: "plan"`) → else ONE triage call
+     (`TRIAGE_SYSTEM_PROMPT`) that names paths from the repo tree;
+  2. read those paths **in full** via `/api/repo-digest`'s `paths` mode (whole-file caps, `clipped`
+     flag) — a file the model could not fully see is never editable;
+  3. ask for a change set of **WHOLE files** (`CODE_EDIT_PROMPT`); the APP validates it
+     (`validateChangeSet`: safe paths only, read files only, no clipped files, no no-op updates,
+     size + count caps) and computes the diff/`+added −removed`/patch itself;
+  4. store the Markdown diff document in `output` (so the SDLC **Review** stage, which consumes a
+     diff, gets it through `{{inputs}}`), the structured `changeSet` + `editMeta` on the box.
+  **Never let the model author the diff** — `src/lib/codeedit.patch.test.ts` applies generated
+  patches with real `git apply` (including a file with no trailing newline and a large-file
+  single-line change) so the patch format cannot drift; `setChangeSetFile` recomputes the diff on a
+  hand edit, so the `.patch` can never disagree with what the panel shows. A non-JSON model reply is
+  an error, never a guessed edit; a failed run keeps the previous change set but labels it stale.
+  Note `computeLineDiff` treats a missing final newline as part of the last line (a sentinel) —
+  without that, `git apply` rejects hunks that git itself considers different.
+- **AI change requests in the Code / UI boxes:** once `boxData.code` exists, the box shows a
+  **"Request a change…"** field + **✏️ Apply change** (`CodeChangePanel.tsx`), backed by the
+  `applyChangeRequest` store action. The model rewrites the WHOLE component (the only reliable way to
+  ask for a code edit) under the non-editable `CODE_CHANGE_PROMPT` rules (return the complete file,
+  keep everything the request does not mention byte-identical, no reformatting/renaming, no dropped
+  features) — that template is deliberately fixed because its rules are the safeguard. Guards:
+  `isCompletePrototype` (must still define App **and** mount it) and "no change" detection, so an
+  incomplete or identical reply never replaces working code (`setBoxStatus(id, "error", …)` keeps the
+  old code). Versions: **every** build and change appends to `boxData.codeVersions` via the shared
+  `appendVersion` (the `ArtifactVersion` record, same shape the SDLC stages use — `SdlcVersion` is now
+  a type alias of it), with `codeVersion` pointing at the current one; `revertCodeVersion` restores an
+  old version **as a new version**, so history stays append-only. The panel shows `vN · +added
+  −removed vs vN-1`, a 🔀 diff (reusing `computeLineDiff`/`lineDiff` from `lib/codeedit.ts`) and a 🕘
+  history with 👁 view + ↩ Revert. Upstream boxes may supply the request (a Review box's findings, a
+  Code Edit change set) — with `skipSelf: true` so the box's own build description is not mistaken for
+  a change request. Stitch boxes are excluded: their `code` is HTML from another provider.
+- **Box deploys to here.now (🚀 Deploy):** **Code**, **UI Design**, **Stitch UI** and **Code Edit**
+  boxes can publish their code to a live `https://{slug}.here.now/` Site. The browser never holds a
+  credential — `POST /api/herenow-deploy` (route in both backends, logic in the duplicated
+  `server/src/herenow.ts` + `functions/src/herenow.ts`) runs here.now's three-step flow
+  (**create → PUT to presigned targets → finalize**; a Site is NOT live until finalize succeeds).
+  What each box publishes comes from **`client/src/lib/deploy.ts`** (`deployFilesFor`): Code/UI →
+  `index.html` (the CDN-wrapped page the box previews) + `App.jsx`; Stitch → its HTML as-is; Code
+  Edit → the changed files at their repository paths + `CHANGES.md` (deletions skipped). The run path
+  is the `deployBox` store action; UI is `components/DeployPanel.tsx` (the 🌐 Live site strip with the
+  live link, expiry, 🔑 claim toggle, warnings and errors) plus a footer button. Invariants:
+  site-relative paths only and **`.herenow/` refused** (those are here.now config manifests — a
+  generated box must never ship server-side config); caps 400 files / 8 MB per file / 25 MB total,
+  mirrored client-side so the UI refuses early; **redeploys send `slug` + `baseVersionId` (+ the
+  claim token)**, so a Site changed elsewhere is refused with a message naming the live version
+  rather than clobbered; and because here.now returns the claim token **exactly once**, the box keeps
+  it in `boxData.deploy` (all fields always defined) — an update response that omits it must not
+  erase the stored one. Without `HERENOW_API_KEY` Sites are anonymous (**24h expiry**); with it they
+  are permanent. `/api/health` reports `herenowKey`. Docs: `docs/API.md` (endpoint), `docs/BOX_TYPES.md`
+  ("Deploying a box"). The here.now *skill* is installed at `~/.agents/skills/here-now` (a root DSH
+  reads); its rule that `curl https://here.now/docs` returns a markdown summary — not the full HTML —
+  is why the real contract came from `https://here.now/openapi.json`.
+- **Downloading a box's outcome:** `client/src/lib/download.ts` (`outcomeText`, `outcomeFilename`,
+  `slugifyFilename` pure + `downloadText` DOM) backs the `💾 Save` button in the box footer for every
+  text-output box (research, summarize, prd, devplan, codemap, codeedit, custom, agent, slides, all
+  six `sdlc-*`).
+  Filenames: the blueprint's artifact names for the SDLC stages (`intent.md`, `spec.md`, `plan.md`,
+  `implementation.md`, `review.md`, `merge.md`), the type otherwise, and the slugified label for
+  custom boxes. Slides download as a Markdown deck built from `slides[]`. The file is the artifact
+  text only — versions/approvals live in the SDLC `🗂 Audit` export. Code/UI/Stitch keep their own
+  💾 Save (HTML) and Cartoon its image download; Idea/Image/Documents/Note/Label/Timer/Checklist
+  have no text outcome.
 - **Documents box (📎, input category):** multi-file upload (click or drag & drop) whose extracted
   text becomes the box's output for downstream prompts. All logic lives in
   `client/src/lib/documents.ts` (unit-tested): txt/md/csv/json are read as text directly; **PDF**
@@ -369,6 +557,29 @@ The app reports per-call LLM token usage and tracks cumulative usage per user an
   -200/-300 borders) so areas never compete with boxes on top; the minimap shows areas in their
   border shade. `noWheelClassName="react-flow__node"` covers area nodes too — scroll over an area
   zooms the canvas as over any node.
+- **Touch / tablet (iPad) support:** everything touch-related is scoped to `@media (pointer: coarse)`
+  in `client/src/index.css` — desktop is byte-for-byte unchanged. When adding UI, keep it that way:
+  - **Hover-gated controls need `.touch-visible`** (opacity forced to 1 on coarse pointers) — used by
+    the Documents-file ✕ (BoxNode) and the Sidebar custom-template ✕. Note/label/chatbot/box delete
+    ✕s are always visible + 30px on touch via their own classes.
+  - **Touch-target classes:** `.box-footer button`, `.slide-nav`, `.timer-controls button`,
+    `.checklist-check` / `.checklist-row-actions button` / `.checklist-assign` /
+    `.checklist-add-*`, `.area-color-dot`/`.label-color-dot`, `.palette-row`, `.sidebar-tab`,
+    `.help-anchor`, `.app-bar button/input`. React Flow connection handles are forced to 18px with
+    `!important` (BoxNode sets 10px inline), resize handles 20px, controls 34px.
+  - **Box bodies scroll on touch:** the standard box-card body wrapper is `box-body nodrag` +
+    `touch-action: pan-y` (coarse only) so a finger scrolls long output instead of dragging the
+    node. Side effect on desktop too: boxes are dragged by their header strip (consistent with the
+    idea-textarea `nodrag` convention).
+  - **Canvas:** `zoomOnDoubleClick={false}`; the Area tool has a native `touchstart`/`touchmove`/
+    `touchend` mirror on `.react-flow__pane` (iPads never fire the synthesized mousedown — React
+    Flow's touch handlers suppress it); presence cursors update via ReactFlow `onTouchMove`.
+  - **Page level:** `index.html` viewport is `viewport-fit=cover, maximum-scale=1, user-scalable=no`
+    plus apple/web-app metas (Add-to-Home-Screen = chrome-less kiosk); `.app-bar` pads with
+    `env(safe-area-inset-*)`; root uses `100dvh`; `overscroll-behavior: none`; global
+    `touch-action: manipulation` on buttons kills double-tap zoom; `body` is `user-select: none` on
+    coarse pointers with `input`/`textarea`/`.markdown-output`/CodeMirror re-enabled.
+  - Verified with the full E2E (105/105, desktop viewport) — keep the suite green when extending.
 - **Custom boxes (user-created templates):** users create reusable AI box templates ("✨ New
   Custom Box" in the sidebar) — name, emoji, color, prompt template, system prompt. Definitions
   are saved per-user at `users/{uid}/boxes/{boxId}` (owner-only rules; `userBoxesStore.ts` loads
@@ -464,6 +675,9 @@ app; the directory just lives in this repo so the plugins stay under version con
   of work. State lives here, knowledge lives in this file.
 - `docs/ARCHITECTURE.md` — deep dive into client, backend, and Firebase layers.
 - `docs/API.md` — backend endpoints and environment variables.
+- `docs/MODELS.md` — **model registry** (single source of truth): which model serves text / Stitch
+  UI / fal.ai images, the env overrides (`OLLAMA_MODEL`, `STITCH_MODEL`), how to switch, and a
+  change log — **update it whenever a model changes**.
 - `docs/DEPLOYMENT.md` — production deploy steps.
 - `docs/course/` — teaching/learning materials (briefs + how-to guides, each also as an HTML
   handout for print/PDF).

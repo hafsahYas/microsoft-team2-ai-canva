@@ -48,12 +48,32 @@ Course materials for using AI Canva as a teaching/learning project. A complete s
 ## ✨ Features
 
 - **Visual pipelines** — drag boxes onto a canvas and connect them; content flows box to box.
-- **11 box types** — Idea, Image, Research, Summarize, PRD, Dev Plan, Cartoon Profile, Slides, Code, UI Design, and Stitch UI.
+- **26 box types** — Idea, Image, Documents, the six gated **SDLC stages** (Intent, Spec, Plan,
+  Implementation, Review, Merge), Research, Summarize, PRD, Dev Plan, **Code Map**, **Code Edit**,
+  Cartoon Profile, Slides, Code, UI Design, Stitch UI, plus Notes / Labels / Timers / the shared
+  team **Checklist** and your own custom boxes.
+- **Gated SDLC pipeline** — walk one change request through intent → spec → plan → implementation →
+  review → merge, approving (or sending back, rejecting, editing) each artifact at its gate. Every
+  version is append-only, an unapproved stage blocks the next one, and the whole chain exports as
+  one audit document.
+- **Download any box's outcome** — `💾 Save` writes a box's real output to a Markdown file
+  (`intent.md`, `spec.md`, `research.md`, …), ready to paste into a repo or a PR.
+- **Read any GitHub repo** — the **Code Map** worker fetches a repository (public ones need no setup)
+  and writes an orientation brief: what the code does, how it is structured, the main flows, the
+  risks, and where to start reading.
+- **Modify an existing repo** — the **Code Edit** worker reads the files a change touches, proposes the
+  edit as a reviewable diff, and hands you a `git apply`-able `.patch`. Nothing is pushed anywhere.
 - **AI-powered** — Ollama (LLM) for text, fal.ai for image generation, Google Stitch for production-quality UI screens.
 - **Real-time collaboration** — share boards by email, live cursors with names/colors, and live multi-user editing via Firestore.
 - **Cloud persistence** — boards auto-save to Firestore (with localStorage as an offline cache). Sign in with Google to use the app; your boards are stored per user.
 - **Editable prompt templates** — reference connected inputs by name (`{{Box Name}}`, `{{input_1}}`, `{{inputs}}`) right in the settings panel.
 - **Live code previews** — Code and UI boxes render generated React components in an iframe with copy/save.
+- **Deploy straight from a box** — any Code, UI Design, Stitch UI or Code Edit box publishes to a live
+  URL with 🚀 Deploy (here.now): the prototype plus its source, updatable in place, with the expiry
+  and claim link surfaced for anonymous sites.
+- **Ask the AI for changes** — once a Code or UI box has produced code, type a change request and press
+  ✏️ Apply change: you get the updated component, a diff of exactly what moved, and a version history
+  with one-click revert.
 
 ## 📦 Box Types
 
@@ -61,17 +81,31 @@ Course materials for using AI Canva as a teaching/learning project. A complete s
 |-----|------|------|-------------|
 | **Idea** | 💡 | Input | Free-text input. No AI — just write your idea. The seed of most pipelines. |
 | **Image** | 🖼️ | Input | Upload an image (auto-resized to ≤1024px). Becomes input for downstream boxes. |
+| **Documents** | 📎 | Input | Upload PDFs/Word/text files — extracted text becomes input for downstream boxes. |
+| **Intent** | 🎯 | SDLC 1 | Turns a raw change request into an intent doc, keeping every open question visible. Always gated. |
+| **Spec** | 📐 | SDLC 2 | Resolves each open question with an explicit rule, applying your org skills. Unresolved items keep it gated. |
+| **Plan** | 🧭 | SDLC 3 | Files, order of work, and a named test for every spec decision (the app flags any decision with no test). |
+| **Implementation** | 🛠️ | SDLC 4 | The diff plus per-test evidence; a plan deviation is surfaced, not silently absorbed. |
+| **Review** | 🔎 | SDLC 5 | Findings tagged blocking / important / nit. Blocking findings block the merge until dismissed. |
+| **Merge** | 🚀 | SDLC 6 | The merge record (checklist, commit message, PR body). Approving it is the recorded ship decision. |
 | **Research** | 🔍 | Worker | Runs an AI prompt over connected inputs and returns research findings. |
 | **Summarize** | 📋 | Worker | Combines multiple upstream inputs into a concise AI summary. |
 | **PRD** | 📄 | Worker | Generates a Product Requirements Document (features, user stories, specs) — ideal input for the Code box. |
 | **Dev Plan** | 🗺️ | Worker | Transforms a PRD into a short, practical development plan (components, state, functions, build order). |
+| **Code Map** | 🔭 | Worker | Reads a GitHub repository and writes an orientation brief — structure, entry points, main flows, risks, and where to start reading. |
+| **Code Edit** | ✍️ | Worker | Applies a change request to an existing repo: reads the files it needs, proposes the edit as a reviewable diff, and gives you a `.patch` to apply. |
 | **Cartoon Profile** | 🎨 | Worker | Generates a cartoon avatar via fal.ai — image-to-image from an Image box, or text-to-image from an Idea box. |
 | **Slides** | 📊 | Worker | Generates a visual pitch deck with prev/next navigation. |
 | **Code** | 💻 | Worker | Generates a React prototype with a live preview, copy, and download. |
 | **UI Design** | ✨ | Worker | Generates production-quality React UIs with Tailwind CSS + Google Fonts. |
 | **Stitch UI** | 🧵 | Worker | Generates UI screens using Google Stitch; returns polished HTML directly. |
+| **Note / Label / Timer** | 🗒️ | Collab | Standalone annotation tools — no AI, no Run button, no connections. |
+| **Checklist** | ✅ | Collab | A shared team to-do list: anyone adds, assigns, reorders and ticks off tasks; everyone sees the same list live. |
+| **Chatbot** | 🧍 | Companion | A stick-figure companion that lives on the board and chats with the team. |
+| **Custom** | ✨ | Custom | Your own saved AI box templates, created in the sidebar. |
 
-> A "custom" box category is reserved on the sidebar for future box types.
+> The six **SDLC** boxes are also selectable as a View profile in the sidebar, next to Designer /
+> Developer / Product. The gated pipeline is described in `docs/BOX_TYPES.md`.
 
 ---
 
