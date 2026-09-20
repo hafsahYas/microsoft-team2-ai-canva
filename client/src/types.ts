@@ -770,24 +770,40 @@ export const BOX_TYPES: Record<BoxType, BoxTypeMeta> = {
     hasAI: true,
     category: "worker",
     roles: ["everyone"],
-    defaultPrompt:
-      "Analyse the following information and create a structured asset inventory.\n\n" +
-      "Identify relevant assets such as data, applications, systems, cloud services, infrastructure, people, and physical resources where applicable.\n\n" +
-      "For each asset, provide:\n" +
-      "- Asset Name\n" +
-      "- Category\n" +
-      "- Description\n" +
-      "- Owner\n" +
-      "- Classification (Public, Internal, Confidential, or Restricted)\n" +
-      "- Location\n" +
-      "- Dependencies\n" +
-      "- Relevant compliance or regulatory tags\n" +
-      "- Missing information or review flags\n\n" +
-      "Do not invent missing information. If something cannot be determined from the input, mark it as Unknown / Requires Review.\n\n" +
-      "Briefly explain classifications where useful. Focus only on identifying, organising, and classifying assets. Do not perform threat modelling or final risk scoring, as these are handled by downstream security boxes.\n\n" +
+              defaultPrompt:
+      "Extract a structured asset inventory from the input below.\n\n" +
+      "Output ONLY a valid JSON array. No markdown, no code fences, no explanation, no intro text. Just the JSON.\n\n" +
+      "Each item in the array MUST have these exact keys:\n" +
+      "{\n" +
+      '  "asset_name": string,\n' +
+      '  "type": "Data" | "Application" | "System" | "Cloud Service" | "Infrastructure" | "People" | "Physical",\n' +
+      '  "owner": string,\n' +
+      '  "classification": "Public" | "Internal" | "Confidential" | "Restricted",\n' +
+      '  "sensitivity": "High" | "Medium" | "Low",\n' +
+      '  "location": string,\n' +
+      '  "dependencies": string[],\n' +
+      '  "compliance_tags": string[],\n' +
+      '  "review_flags": string[]\n' +
+      "}\n\n" +
+      "Rules:\n" +
+      "- If a value is not stated in the input, set it to the string \"Unknown\".\n" +
+      "- NEVER invent owners, names, emails, or roles. If no owner is named in the input, set owner to \"Unknown\".\n" +
+      "- type must be EXACTLY one of these 7 literal strings: \"Data\", \"Application\", \"System\", \"Cloud Service\", \"Infrastructure\", \"People\", \"Physical\".\n" +
+      "- classification must be EXACTLY one of: \"Public\", \"Internal\", \"Confidential\", \"Restricted\".\n" +
+      "- sensitivity must be EXACTLY one of: \"High\", \"Medium\", \"Low\".\n" +
+      "- For classification and sensitivity, apply these mappings based on the nature of the asset (do not invent new facts, but use sensible defaults for well-known asset categories):\n" +
+      "  * Medical / health records, PII, payment data, credentials → Restricted, High\n" +
+      "  * Employee / HR / internal financial data → Confidential, Medium\n" +
+      "  * Internal documents, procedures, training material → Internal, Low\n" +
+      "  * Cloud infrastructure, networking, DNS, SSO, messaging → Internal, Low\n" +
+      "  * Public marketing material, public docs → Public, Low\n" +
+      "- dependencies, compliance_tags, and review_flags must be JSON arrays of strings.\n" +
+      "- One JSON object per asset. Do NOT list the same asset twice under different types.\n" +
+      "- Do NOT list regulations, laws, or standards (e.g. Privacy Act, HIPAA, PCI-DSS, GDPR) as assets. Put them in the \"compliance_tags\" field.\n" +
+      "- Do NOT give security advice. Do NOT recommend controls. Do NOT perform threat modelling or risk scoring.\n\n" +
       "Input:\n{{inputs}}",
     defaultSystemPrompt:
-      "You are a cybersecurity asset mapping assistant. Convert user and upstream system information into a clear, structured asset inventory. Be accurate, avoid assumptions, clearly flag missing information, and preserve useful relationships and dependencies between assets.",
+          "You are a strict, literal cybersecurity asset mapping assistant. You output ONLY a valid JSON array of asset objects. Every object has the exact keys requested. You never invent owners, names, or values — if the input does not state something, you write the string \"Unknown\". You never give security advice or recommendations.",
     defaultWidth: 360,
     defaultHeight: 380,
   },
