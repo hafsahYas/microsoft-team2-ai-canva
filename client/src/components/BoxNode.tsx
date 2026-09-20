@@ -437,7 +437,7 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
         isVisible={!!selected}
       />
       <div
-        className={"box-node" + (selected ? " selected" : "")}
+        className={"box-node font-sans" + (selected ? " selected" : "")}
         style={{ borderColor: meta.color }}
       >
       {/* Target handle (input) — AI boxes only (not input/utility boxes) */}
@@ -481,17 +481,17 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
                 setNameDraft(data.title as string || meta.label + " Box");
                 setIsEditingName(true);
               }}
-              className="font-semibold text-slate-700 text-sm truncate cursor-text hover:bg-white/40 rounded px-1 py-0.5 transition"
+              className="font-semibold text-slate-200 text-[15px] truncate cursor-text hover:bg-white/40 rounded px-1 py-0.5 transition"
               title="Click to rename"
             >
               {(data.title as string) || meta.label + " Box"}
             </span>
           )}
-          <span className="text-xs text-slate-400 flex-shrink-0">{meta.label}</span>
+          <span className="text-xs text-slate-500 flex-shrink-0">{meta.label}</span>
         </div>
         <button
           onClick={() => deleteBox(id)}
-          className="text-slate-400 hover:text-red-500 transition text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-red-50"
+          className="text-slate-500 hover:text-red-500 transition text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-red-50"
           title="Delete box"
         >
           ✕
@@ -649,16 +649,16 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
         {/* ===== AI / input boxes ===== */}
 
         {/* Idea box — editable textarea */}
-        {isIdea && (
-          <textarea
-            className="nodrag nowheel w-full min-h-[100px] resize-y rounded-lg border border-slate-200 p-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-300"
-            placeholder="Write your idea here..."
-            value={boxData.content}
-            onChange={(e) =>
-              updateBoxData(id, { content: e.target.value, output: e.target.value })
-            }
-          />
-        )}
+{isIdea && (
+  <textarea
+    className="nodrag nowheel w-full min-h-[100px] resize-none border-0 bg-transparent p-2 text-base text-slate-300 placeholder:text-slate-500 focus:outline-none focus:ring-0"
+    placeholder="Write your idea here..."
+    value={boxData.content}
+    onChange={(e) =>
+      updateBoxData(id, { content: e.target.value, output: e.target.value })
+    }
+  />
+)}
 
         {/* Agent box — task + live step timeline + final answer */}
         {isAgent && (() => {
@@ -680,7 +680,7 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
           return (
             <div className="flex flex-col gap-2 min-h-[140px]">
               <textarea
-                className="nodrag nowheel w-full min-h-[64px] resize-y rounded-lg border border-indigo-200 p-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="nodrag nowheel w-full min-h-[64px] resize-y rounded-lg border border-indigo-200 p-2 text-base text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 placeholder="Describe the task for the agent, e.g. “Turn this idea into a full pitch: research it, write a PRD, and build a landing page prototype”"
                 value={boxData.content}
                 onChange={(e) => updateBoxData(id, { content: e.target.value })}
@@ -715,7 +715,7 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
                 </div>
               )}
               {hasTextOutput && (
-                <div className="markdown-output text-slate-700 text-sm">
+                <div className="markdown-output text-slate-300 text-base">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500 mb-0.5">
                     Agent answer
                   </div>
@@ -947,7 +947,7 @@ function BoxNode({ id, data, selected, type }: NodeProps) {
               </div>
             )}
             {hasTextOutput && !isRunning && (
-              <div className="markdown-output text-slate-700 text-sm">
+              <div className="markdown-output text-slate-300 text-base">
                 <ReactMarkdown>{boxData.output}</ReactMarkdown>
               </div>
             )}

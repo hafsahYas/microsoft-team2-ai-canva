@@ -146,12 +146,15 @@ export default function Canvas() {
       // panning the canvas or moving nodes.
       panOnDrag={!areaTool}
       nodesDraggable={!areaTool}
-      className={areaTool ? "area-tool-active" : undefined}
+      className={
+        "secureflow-canvas" +
+        (areaTool ? " area-tool-active" : "")
+      }
       fitView
       fitViewOptions={{ padding: 0.3 }}
       defaultEdgeOptions={{
         animated: true,
-        style: { stroke: "#cbd5e1", strokeWidth: 2 },
+        style: { stroke: "#22d3ee", strokeWidth: 2 },
       }}
       proOptions={{ hideAttribution: true }}
       // Treat every node as a "no wheel" zone: when the cursor is over a box,
@@ -159,7 +162,12 @@ export default function Canvas() {
       // box's own scrolling). Zooming still works over empty canvas space.
       noWheelClassName="react-flow__node"
     >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
+      <Background
+        variant={BackgroundVariant.Dots}
+        gap={20}
+        size={1.2}
+        color="#164e63"
+      />
       <Controls />
       <Cursors />
       {/* Area drawing tool */}
