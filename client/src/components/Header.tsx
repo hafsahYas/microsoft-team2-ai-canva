@@ -78,19 +78,18 @@ function Header({
   const avatarInitials = (user.displayName || user.email || "?").slice(0, 2).toUpperCase();
 
   return (
-    <header className="app-bar flex items-center justify-between gap-3 px-4 h-14 relative z-20">
+    <header className="app-bar flex items-center justify-between gap-3 px-4 h-14 relative z-20 bg-[#0A1428] border-t-2 border-[#0C8CE9]">
       {/* ---- Left: brand + board identity ---- */}
       <div className="flex items-center gap-3 min-w-0">
-        <div className="flex items-center gap-2.5 flex-shrink-0">
-          <div className="logo-tile" aria-hidden>
-            🎨
-          </div>
-          <span className="text-[15px] font-semibold tracking-tight text-slate-900 hidden sm:block">
-            AI Canva
-          </span>
+        <div className="flex items-center flex-shrink-0">
+          <img
+            src="/secureflow-logo.png"
+            alt="SecureFlow"
+            className="h-10 w-auto object-contain"
+          />
         </div>
 
-        <div className="h-6 w-px bg-slate-200 flex-shrink-0" />
+        <div className="h-6 w-px bg-[#12304A] flex-shrink-0" />
 
         {currentBoardId ? (
           <div className="flex items-center gap-2.5 min-w-0">
@@ -99,7 +98,7 @@ function Header({
               value={boardTitle}
               onChange={(e) => setBoardTitle(e.target.value)}
               placeholder="Untitled board"
-              className="h-8 w-48 md:w-56 rounded-lg border border-transparent bg-slate-100/70 px-2.5 text-[13px] font-medium text-slate-700 transition hover:border-slate-200 hover:bg-slate-100 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="h-8 w-48 md:w-56 rounded-lg border border-[#12304A] bg-[#08122A] px-2.5 text-[13px] font-medium text-slate-200 transition hover:border-[#00D4AA] hover:bg-[#10263A] focus:border-[#00D4AA] focus:bg-[#08122A] focus:outline-none focus:ring-2 focus:ring-[#00D4AA]/20"
             />
             {saveLabel && (
               <span
@@ -107,7 +106,9 @@ function Header({
                 title={"Board save status: " + saveLabel}
               >
                 <span className={"save-dot save-" + saveStatus} />
-                <span className="text-[11px] text-slate-400 hidden md:block">{saveLabel}</span>
+                <span className="text-[11px] text-slate-400 hidden md:block">
+                  {saveLabel}
+                </span>
               </span>
             )}
           </div>
@@ -122,15 +123,26 @@ function Header({
         {currentBoardId && (
           <>
             <PresenceRoster />
-            <Button variant="primary" onClick={onShare} className="ml-1">
+
+            <Button
+              variant="primary"
+              onClick={onShare}
+              className="ml-1 border border-[#00D4AA] bg-[#0A1428] text-[#00D4AA] hover:bg-[#10263A]"
+            >
               👥 Share
             </Button>
-            <div className="h-6 w-px bg-slate-200 mx-1.5" />
+
+            <div className="h-6 w-px bg-[#12304A] mx-1.5" />
           </>
         )}
 
         {/* Board tools */}
-        <Button onClick={onToggleSidebar} active={sidebarOpen} title="Toggle the add-box panel">
+        <Button
+          onClick={onToggleSidebar}
+          active={sidebarOpen}
+          title="Toggle the add-box panel"
+          className="border border-[#00D4AA] bg-[#00D4AA] text-[#08122A] hover:bg-[#00BFA0]"
+        >
           {"+ Add Box"}
         </Button>
 
@@ -138,18 +150,23 @@ function Header({
           panelClassName="w-72"
           trigger={({ open, toggle }) => (
             <Button
-              onClick={() => {
-                if (!open) refreshBoardList();
-                toggle();
-              }}
-              active={open}
-              title="Open, create, or manage boards"
-            >
-              Boards ({boardList.length})
-              <span className={"text-[10px] transition-transform " + (open ? "rotate-180" : "")}>
-                ▾
-              </span>
-            </Button>
+  onClick={() => {
+    if (!open) refreshBoardList();
+    toggle();
+  }}
+  title="Open, create, or manage boards"
+  className="!border-[#1E4968] !bg-[#0A1428] !text-white hover:!bg-[#12243A] hover:!border-[#00D4AA]"
+>
+  Boards ({boardList.length})
+  <span
+    className={
+      "!text-white text-[10px] transition-transform " +
+      (open ? "rotate-180" : "")
+    }
+  >
+    ▾
+  </span>
+</Button>
           )}
         >
           {(close) => (
@@ -164,9 +181,13 @@ function Header({
                     onNewBoard();
                   }}
                 />
+
                 {boardList.length === 0 && (
-                  <div className="px-3.5 py-3 text-xs text-slate-400">No boards yet.</div>
+                  <div className="px-3.5 py-3 text-xs text-slate-400">
+                    No boards yet.
+                  </div>
                 )}
+
                 {boardList.map((b) => (
                   <MenuItem
                     key={b.id}
@@ -185,9 +206,11 @@ function Header({
                   />
                 ))}
               </div>
+
               {currentBoardId && (
                 <>
                   <MenuDivider />
+
                   <MenuItem
                     icon="🧹"
                     label="Clear this board"
@@ -198,6 +221,7 @@ function Header({
                       onClearBoard();
                     }}
                   />
+
                   <MenuItem
                     icon="🗑"
                     label="Delete this board"
@@ -214,14 +238,17 @@ function Header({
           )}
         </Menu>
 
-        <div className="h-6 w-px bg-slate-200 mx-1.5" />
+        <div className="h-6 w-px bg-[#12304A] mx-1.5" />
 
         {/* Usage + role views + account */}
         <div
-          className="flex items-center gap-1 h-8 px-2.5 rounded-lg bg-slate-100/80 text-[11px] text-slate-500 tabular-nums"
+          className="flex items-center gap-1 h-8 px-2.5 rounded-lg border border-[#12304A] bg-[#0A1428] text-[11px] text-slate-400 tabular-nums"
           title={"Your total LLM tokens used: " + fmtTokens(totalTokens)}
         >
-          ⚡ <span className="font-semibold text-slate-600">{fmtTokens(totalTokens)}</span>
+          ⚡{" "}
+          <span className="font-semibold text-[#00D4AA]">
+            {fmtTokens(totalTokens)}
+          </span>
           <span className="hidden md:inline">tok</span>
         </div>
 
@@ -235,6 +262,7 @@ function Header({
             🛠️ Admin
           </Button>
         )}
+
         {(isAdmin || isFacilitator) && (
           <Button
             variant="ghost"
@@ -255,30 +283,39 @@ function Header({
               className={
                 "flex items-center gap-1 h-8 pl-1 pr-2 rounded-full border shadow-sm transition " +
                 (open
-                  ? "bg-slate-50 border-slate-300"
-                  : "bg-white border-slate-200 hover:border-slate-300")
+                  ? "bg-[#08122A] border-[#00D4AA]"
+                  : "bg-[#0A1428] border-[#12304A] hover:border-[#00D4AA]")
               }
               title="Account"
             >
               {user.photoURL ? (
-                <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full" />
+                <img
+                  src={user.photoURL}
+                  alt=""
+                  className="w-6 h-6 rounded-full"
+                />
               ) : (
-                <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center">
+                <span className="w-6 h-6 rounded-full bg-[#12304A] text-[#00D4AA] text-[10px] font-bold flex items-center justify-center">
                   {avatarInitials}
                 </span>
               )}
+
               <span className="text-[10px] text-slate-400">▾</span>
             </button>
           )}
         >
           {(close) => (
             <>
-              <div className="px-3.5 py-2.5 border-b border-slate-100">
-                <p className="text-[13px] font-medium text-slate-800 truncate">
+              <div className="px-3.5 py-2.5 border-b border-[#12304A]">
+                <p className="text-[13px] font-medium text-slate-200 truncate">
                   {user.displayName || "Signed in"}
                 </p>
-                <p className="text-[11px] text-slate-400 truncate">{user.email || "Workshop guest"}</p>
+
+                <p className="text-[11px] text-slate-400 truncate">
+                  {user.email || "Workshop guest"}
+                </p>
               </div>
+
               <div className="py-1">
                 <MenuItem
                   icon="⏻"

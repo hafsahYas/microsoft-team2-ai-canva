@@ -74,7 +74,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       {!open && (
         <button
           onClick={onToggle}
-          className="sidebar-tab absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white shadow-lg rounded-l-xl w-8 h-16 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition border border-r-0 border-slate-200"
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-slate-900 shadow-lg rounded-l-xl w-8 h-16 flex items-center justify-center text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition border border-r-0 border-slate-700"
           title="Show panel"
         >
           <span className="text-lg">◀</span>
@@ -84,18 +84,18 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       {/* Sidebar panel */}
       <div
         className={
-          "absolute right-0 top-0 bottom-0 z-20 bg-white shadow-xl border-l border-slate-200 " +
+          "absolute right-0 top-0 bottom-0 z-20 bg-[#07111f] shadow-xl border-l border-slate-700 " +
           "transition-transform duration-300 flex flex-col " +
           (open ? "translate-x-0" : "translate-x-full")
         }
         style={{ width: "232px" }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
-          <span className="text-[13px] font-semibold text-slate-700">Add Box</span>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 flex-shrink-0">
+          <span className="text-[13px] font-semibold text-slate-200">Add Box</span>
           <button
             onClick={onToggle}
-            className="text-slate-400 hover:text-slate-600 transition w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100"
+            className="text-slate-400 hover:text-cyan-300 transition w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800"
             title="Hide panel"
           >
             ✕
@@ -103,14 +103,14 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
         </div>
 
         {/* Role filter */}
-        <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-shrink-0">
-          <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="px-3 py-2.5 border-b border-slate-700 bg-[#0b1626] flex-shrink-0">
+          <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
             <span>View</span>
           </label>
           <select
             value={role}
             onChange={(e) => selectRole(e.target.value as "all" | BoxRole)}
-            className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-[13px] font-medium text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition"
+            className="w-full h-8 rounded-lg border border-slate-700 bg-slate-900 px-2 text-[13px] font-medium text-slate-200 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition"
             title="Filter which boxes appear in the palette"
           >
             <option value="all">🧩 All boxes</option>
@@ -133,7 +133,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             if (!isCustom && boxes.length === 0) return null;
             return (
               <div key={section.title}>
-                <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 px-1">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 px-1">
                   {section.title}
                 </h3>
                 <div className="space-y-1">
@@ -141,7 +141,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                     <button
                       key={type}
                       onClick={() => handleAdd(type)}
-                      className="palette-row w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-200/70 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
+                      className="w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-left transition hover:border-cyan-700 hover:bg-slate-800 hover:shadow-sm"
                       title={meta.description}
                     >
                       <span
@@ -150,7 +150,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                       >
                         {meta.icon}
                       </span>
-                      <span className="flex-1 text-[13px] font-medium text-slate-700 truncate">
+                      <span className="flex-1 text-[13px] font-medium text-slate-200 truncate">
                         {meta.label}
                       </span>
                     </button>
@@ -164,7 +164,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                         <div key={def.id} className="relative group">
                           <button
                             onClick={() => addCustomBox(def)}
-                            className="palette-row w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-200/70 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
+                            className="w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-left transition hover:border-cyan-700 hover:bg-slate-800 hover:shadow-sm"
                             title={def.description || "Add this custom box"}
                           >
                             <span
@@ -173,13 +173,13 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                             >
                               {def.icon}
                             </span>
-                            <span className="flex-1 text-[13px] font-medium text-slate-700 truncate">
+                            <span className="flex-1 text-[13px] font-medium text-slate-200 truncate">
                               {def.label}
                             </span>
                           </button>
                           <button
                             onClick={() => removeCustomDef(def.id)}
-                            className="touch-visible absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full text-[10px] text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full text-[10px] text-slate-500 hover:text-red-400 hover:bg-red-950 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
                             title="Delete this template (boards keep their copies)"
                           >
                             ✕
@@ -187,19 +187,19 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                         </div>
                       ))}
                       {customDefs.length === 0 && (
-                        <p className="text-[11px] text-slate-400 px-1 leading-snug">
+                        <p className="text-[11px] text-slate-500 px-1 leading-snug">
                           Create your own reusable AI boxes — saved to your profile.
                         </p>
                       )}
                       <button
                         onClick={() => setShowCustomModal(true)}
-                        className="palette-row w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/40 text-left transition hover:bg-indigo-50 hover:border-indigo-400"
+                        className="w-full flex items-center gap-2.5 pl-2 pr-2.5 py-1.5 rounded-lg border border-dashed border-cyan-800 bg-cyan-950/30 text-left transition hover:bg-cyan-950/50 hover:border-cyan-600"
                         title="Create a custom box"
                       >
-                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm flex-shrink-0 bg-indigo-100/70">
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm flex-shrink-0 bg-cyan-950">
                           ✨
                         </span>
-                        <span className="flex-1 text-[13px] font-medium text-indigo-700 truncate">
+                        <span className="flex-1 text-[13px] font-medium text-cyan-300 truncate">
                           New Custom Box
                         </span>
                       </button>

@@ -43,14 +43,14 @@ export default function PresenceRoster() {
     <div ref={wrapRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 transition"
+        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-transparent border border-[#12304A] hover:bg-[#10263A] transition"
         title="Who is on this board right now"
       >
         <span className="flex items-center -space-x-1.5">
           {shown.map((u) => (
             <span
               key={u.email}
-              className="w-6 h-6 rounded-full text-white text-xs font-bold flex items-center justify-center border-2 border-white"
+              className="w-6 h-6 rounded-full text-white text-xs font-bold flex items-center justify-center border-2 border-[#0A1428]"
               style={{ backgroundColor: u.color }}
               title={u.email}
             >
@@ -58,8 +58,8 @@ export default function PresenceRoster() {
             </span>
           ))}
         </span>
-        <span className="text-xs font-medium text-slate-600 flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="text-xs font-medium text-slate-200 flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-[#00D4AA] animate-pulse" />
           {roster.online.length} online
         </span>
       </button>
@@ -80,7 +80,11 @@ export default function PresenceRoster() {
 
           <div className="max-h-64 overflow-y-auto py-1">
             {roster.online.map((u: RosterEntry) => (
-              <div key={u.email} data-testid="roster-row" className="flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50">
+              <div
+                key={u.email}
+                data-testid="roster-row"
+                className="flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50"
+              >
                 <span
                   className="w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center flex-shrink-0"
                   style={{ backgroundColor: u.color }}
@@ -91,14 +95,20 @@ export default function PresenceRoster() {
                   <span className="flex items-center gap-1.5">
                     <span className="text-sm font-medium text-slate-700 truncate">{u.name}</span>
                     {u.isSelf && (
-                      <span data-testid="you-chip" className="text-[10px] font-semibold text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-full px-1.5 py-0.5">
+                      <span
+                        data-testid="you-chip"
+                        className="text-[10px] font-semibold text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-full px-1.5 py-0.5"
+                      >
                         you
                       </span>
                     )}
                   </span>
                   <span className="block text-xs text-slate-400 truncate">{u.email}</span>
                 </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" title="Online" />
+                <span
+                  className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"
+                  title="Online"
+                />
               </div>
             ))}
 
@@ -117,7 +127,10 @@ export default function PresenceRoster() {
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm text-slate-500 truncate">{email}</span>
                     </span>
-                    <span className="w-2 h-2 rounded-full bg-slate-300 flex-shrink-0" title="Offline" />
+                    <span
+                      className="w-2 h-2 rounded-full bg-slate-300 flex-shrink-0"
+                      title="Offline"
+                    />
                   </div>
                 ))}
               </>
